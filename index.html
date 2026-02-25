@@ -405,6 +405,8 @@ function App() {
   const [dupDecs, setDupDecs] = useState({});
   const [hRow,    setHRow]    = useState(6);
   const [pendingFile,setPF]   = useState(null);
+  const [mergeConPairs,setMergeConPairs] = useState([]);
+  const [mergeConDecs, setMergeConDecs]  = useState({});
   const fileRef = useRef();
 
   useEffect(()=>{loadData().then(setData);},[]);
@@ -483,6 +485,67 @@ function App() {
   const delProp = (jid,pid) => upd(d=>{const j=d.accounts.find(a=>a.id===selAcc).jobs.find(j=>j.id===jid);j.proposals=j.proposals.filter(p=>p.id!==pid);return d;});
   const delAcc  = id => {upd(d=>{d.accounts=d.accounts.filter(a=>a.id!==id);return d;});setView("dash");setSA(null);};
   const setTier = (id,t) => upd(d=>{d.accounts.find(a=>a.id===id).tier=t;return d;});
+
+  const openMergeContacts = () => {
+    const acc = gAcc();
+    if(!acc||acc.contacts.length<2){alert("Need at least 2 contacts to find duplicates.");return;}
+    const THRESHOLD = 0.55;
+    const pairs = [];
+    const used = new Set();
+    const contacts = acc.contacts.slice();
+    for(var i=0;i<contacts.length;i++){
+      for(var j=i+1;j<contacts.length;j++){
+        if(used.has(contacts[i].id)||used.has(contacts[j].id)) continue;
+        const s = nameSimilarity(contacts[i].name, contacts[j].name);
+        if(s>=THRESHOLD){
+          pairs.push({a:contacts[i], b:contacts[j], score:s});
+          used.add(contacts[i].id);
+          used.add(contacts[j].id);
+        }
+      }
+    }
+    if(pairs.length===0){alert("No similar contacts found in this account.");return;}
+    setMergeConPairs(pairs);
+    setMergeConDecs({});
+    setModal("mergeContacts");
+  };
+
+  const commitMergeContacts = () => {
+    const snapPairs = mergeConPairs.slice();
+    const snapDecs  = {...mergeConDecs};
+    upd(d=>{
+      const acc = d.accounts.find(a=>a.id===selAcc);
+      if(!acc) return d;
+      snapPairs.forEach(pair=>{
+        const dec = snapDecs[pair.a.id+":"+pair.b.id];
+        if(!dec||dec==="skip") return;
+        // keepId is the one to keep, dropId is the one to remove
+        const keepId = dec;
+        const dropId = dec===pair.a.id ? pair.b.id : pair.a.id;
+        const keepCon = acc.contacts.find(c=>c.id===keepId);
+        const dropCon = acc.contacts.find(c=>c.id===dropId);
+        if(!keepCon||!dropCon) return;
+        // Merge activities from dropCon into keepCon (avoid exact date+type dupes)
+        dropCon.activities.forEach(act=>{
+          const isDupe = keepCon.activities.some(a=>a.date===act.date&&a.type===act.type);
+          if(!isDupe) keepCon.activities.push({...act, id:uid()});
+        });
+        // Sort merged activities by date desc
+        keepCon.activities.sort((a,b)=>new Date(b.date)-new Date(a.date));
+        // Fill in any blank fields on keepCon from dropCon
+        if(!keepCon.title&&dropCon.title) keepCon.title=dropCon.title;
+        if(!keepCon.email&&dropCon.email) keepCon.email=dropCon.email;
+        if(!keepCon.phone&&dropCon.phone) keepCon.phone=dropCon.phone;
+        if(!keepCon.notes&&dropCon.notes) keepCon.notes=dropCon.notes;
+        // Remove the dropped contact
+        acc.contacts = acc.contacts.filter(c=>c.id!==dropId);
+      });
+      return d;
+    });
+    closeModal();
+    setMergeConPairs([]);
+    setMergeConDecs({});
+  };
   const setJobStatus = s => upd(d=>{d.accounts.find(a=>a.id===selAcc).jobs.find(j=>j.id===selJob).status=s;return d;});
 
   const handleFile = e => {
@@ -748,7 +811,72 @@ function App() {
       </Modal>
     );
 
-    if(modal==="settings") return (
+    if(modal==="mergeContacts") return (
+      <Modal title="Merge Duplicate Contacts" wide onClose={closeModal}>
+        <div style={{background:C.bg,borderRadius:8,padding:"10px 14px",marginBottom:16,fontSize:13,color:C.textLo,lineHeight:1.8}}>
+          Found <strong style={{color:C.textHi}}>{mergeConPairs.length}</strong> possible duplicate pair{mergeConPairs.length!==1?"s":""}.
+          For each pair, pick which contact to <strong style={{color:C.green}}>keep</strong> -- the other's activity history will be merged into it and it will be removed.
+        </div>
+        <div style={{maxHeight:460,overflowY:"auto",paddingRight:2}}>
+          {mergeConPairs.map(function(pair,i){
+            var dec = mergeConDecs[pair.a.id+":"+pair.b.id];
+            var sim = Math.round(pair.score*100);
+            var simColor = sim>=90?C.red:sim>=75?C.amber:C.gold;
+            function ConOption(props){
+              var con = props.con;
+              var isChosen = dec===con.id;
+              return (
+                <div
+                  onClick={function(){setMergeConDecs(function(d){var n={};Object.keys(d).forEach(function(k){n[k]=d[k];});n[pair.a.id+":"+pair.b.id]=con.id;return n;});}}
+                  style={{background:isChosen?"#0a1a0a":C.bg,border:"1px solid "+(isChosen?C.green+"80":C.border2),borderRadius:8,padding:"12px 14px",cursor:"pointer",transition:"all 0.15s",flex:1}}
+                >
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:6}}>
+                    <div style={{fontWeight:700,color:isChosen?C.green:C.textHi,fontSize:14}}>{con.name}</div>
+                    {isChosen&&<span style={{fontSize:11,color:C.green,fontWeight:700,border:"1px solid "+C.green+"50",borderRadius:4,padding:"1px 6px"}}>KEEP</span>}
+                  </div>
+                  {con.title&&<div style={{fontSize:12,color:C.textLo,marginBottom:3}}>{con.title}</div>}
+                  {con.email&&<div style={{fontSize:12,color:C.textDim,marginBottom:3}}>{con.email}</div>}
+                  {con.phone&&<div style={{fontSize:12,color:C.textDim,marginBottom:3}}>{con.phone}</div>}
+                  <div style={{fontSize:11,color:C.textDim,marginTop:6}}>{con.activities.length} activities</div>
+                </div>
+              );
+            }
+            return (
+              <div key={i} className="dup-card" style={{background:C.surface,border:"1px solid "+(dec&&dec!=="skip"?C.green+"50":dec==="skip"?C.textDim+"40":C.border),borderRadius:12,padding:16,marginBottom:12,animationDelay:(i*0.05)+"s"}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+                  <span style={{fontSize:11,color:C.textDim,textTransform:"uppercase",letterSpacing:"0.07em"}}>Possible Duplicate</span>
+                  <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                    <span style={{background:simColor+"20",color:simColor,border:"1px solid "+simColor+"50",borderRadius:5,padding:"2px 8px",fontSize:12,fontWeight:700}}>{sim}% match</span>
+                    <button
+                      onClick={function(){setMergeConDecs(function(d){var n={};Object.keys(d).forEach(function(k){n[k]=d[k];});n[pair.a.id+":"+pair.b.id]="skip";return n;});}}
+                      style={{background:"none",border:"1px solid "+C.border2,borderRadius:6,color:dec==="skip"?C.textLo:C.textDim,fontSize:11,cursor:"pointer",padding:"2px 8px",fontFamily:C.sans,fontWeight:dec==="skip"?700:400}}
+                    >Skip</button>
+                  </div>
+                </div>
+                <div style={{fontSize:12,color:C.textDim,marginBottom:10}}>Click the contact to keep:</div>
+                <div style={{display:"flex",gap:10}}>
+                  <ConOption con={pair.a}/>
+                  <ConOption con={pair.b}/>
+                </div>
+                {dec&&dec!=="skip"&&<div style={{marginTop:10,fontSize:12,color:C.textDim,textAlign:"center"}}>The other contact's activities will be merged in and it will be deleted.</div>}
+              </div>
+            );
+          })}
+        </div>
+        <div style={{display:"flex",gap:10,marginTop:18}}>
+          <button style={btn(null,C.textLo,C.border2)} onClick={closeModal}>Cancel</button>
+          <button
+            onClick={commitMergeContacts}
+            disabled={mergeConPairs.every(function(p){return !mergeConDecs[p.a.id+":"+p.b.id];})}
+            style={{...btn(C.gold,"#0a0d13"),flex:1,justifyContent:"center",opacity:mergeConPairs.some(function(p){return mergeConDecs[p.a.id+":"+p.b.id]&&mergeConDecs[p.a.id+":"+p.b.id]!=="skip";})?1:0.5,cursor:"pointer"}}
+          >
+            Merge Selected Contacts
+          </button>
+        </div>
+      </Modal>
+    );
+
+        if(modal==="settings") return (
       <Modal title="Settings" onClose={closeModal}>
         <Field label="Your Name"><input style={inp} value={form.userName!=null?form.userName:userName} onChange={ff("userName")}/></Field>
         <div style={divL}/>
@@ -993,6 +1121,7 @@ function App() {
               <span style={{color:C.textDim,fontSize:13}}>Targeted contacts at {acc.name}</span>
               <div style={{display:"flex",gap:8}}>
                 <button style={btn(null,C.red,"#3d1e1e")} onClick={()=>delAcc(acc.id)}>Delete Account</button>
+                <button style={btn(null,C.purple,"#2a1e3d")} onClick={openMergeContacts}>Merge Duplicates</button>
                 <button style={btn(C.gold,"#0a0d13")} onClick={()=>{setForm({});setModal("addCon");}}>+ Add Contact</button>
               </div>
             </div>
