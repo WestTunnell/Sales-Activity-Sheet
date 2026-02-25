@@ -10,13 +10,13 @@
 <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0;}
-body{background:#090c13;color:#c9c4bc;font-family:'DM Sans','Helvetica Neue',sans-serif;font-size:14px;}
+body{background:#f0eff0;color:#1e2229;font-family:'DM Sans','Helvetica Neue',sans-serif;font-size:14px;}
 button,input,select,textarea{font-family:'DM Sans','Helvetica Neue',sans-serif;}
-input[type="date"]::-webkit-calendar-picker-indicator{filter:invert(0.4);}
-select option{background:#111620;}
+input[type="date"]::-webkit-calendar-picker-indicator{filter:invert(0.2);}
+select option{background:#ffffff;}
 ::-webkit-scrollbar{width:6px;}
-::-webkit-scrollbar-track{background:#090c13;}
-::-webkit-scrollbar-thumb{background:#232938;border-radius:3px;}
+::-webkit-scrollbar-track{background:#e8e7e8;}
+::-webkit-scrollbar-thumb{background:#c5c3c6;border-radius:3px;}
 @keyframes fadeInUp{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
 .dup-card{animation:fadeInUp 0.18s ease both;}
 </style>
@@ -196,12 +196,12 @@ function autoMatch(h) {
 }
 
 const C = {
-  bg:"#090c13", surface:"#0d1017", border:"#1a1f2e", border2:"#232938",
-  text:"#c9c4bc", textHi:"#f0ede8", textLo:"#6b7280", textDim:"#4b5563",
-  gold:"#E8C547", blue:"#7EB8F7", purple:"#9B8FD4", green:"#22c55e", red:"#ef4444", amber:"#f59e0b",
+  bg:"#f0eff0", surface:"#ffffff", border:"#e0dde0", border2:"#d0cdd0",
+  text:"#3a3840", textHi:"#1a1820", textLo:"#7a7880", textDim:"#aaa8b0",
+  gold:"#c8980a", blue:"#3a7fd4", purple:"#7a5fc0", green:"#16a34a", red:"#dc2626", amber:"#d97706",
   serif:"'DM Serif Display',Georgia,serif", sans:"'DM Sans','Helvetica Neue',sans-serif",
 };
-const inp  = {width:"100%",background:"#0a0e18",border:`1px solid ${C.border2}`,borderRadius:8,color:C.text,padding:"9px 12px",fontSize:14,fontFamily:C.sans,boxSizing:"border-box",outline:"none"};
+const inp  = {width:"100%",background:"#f8f7f8",border:`1px solid ${C.border2}`,borderRadius:8,color:C.text,padding:"9px 12px",fontSize:14,fontFamily:C.sans,boxSizing:"border-box",outline:"none"};
 const card = {background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:20,marginBottom:14,transition:"border-color 0.15s"};
 const btn  = (bg,col,bord) => ({background:bg||"transparent",color:col||C.text,border:`1px solid ${bord||C.border2}`,borderRadius:8,padding:"7px 14px",fontSize:13,fontWeight:bg?700:400,cursor:"pointer",display:"inline-flex",alignItems:"center",gap:6,fontFamily:C.sans});
 const lbl  = {fontSize:11,letterSpacing:"0.08em",textTransform:"uppercase",color:C.textDim};
@@ -215,8 +215,8 @@ const MARKET_C = C.purple;
 function Modal({title,onClose,children,wide,xwide}) {
   return (
     <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.85)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:1000,padding:20}}>
-      <div style={{background:"#111620",border:`1px solid ${C.border2}`,borderRadius:12,width:"100%",maxWidth:xwide?920:wide?680:520,maxHeight:"90vh",overflow:"auto"}}>
-        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"17px 24px",borderBottom:`1px solid ${C.border}`,position:"sticky",top:0,background:"#111620",zIndex:1}}>
+      <div style={{background:"#ffffff",border:`1px solid ${C.border2}`,borderRadius:12,width:"100%",maxWidth:xwide?920:wide?680:520,maxHeight:"90vh",overflow:"auto"}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"17px 24px",borderBottom:`1px solid ${C.border}`,position:"sticky",top:0,background:"#ffffff",zIndex:1}}>
           <span style={{fontFamily:C.serif,fontSize:18,color:C.textHi}}>{title}</span>
           <button onClick={onClose} style={{background:"none",border:"none",color:C.textLo,cursor:"pointer",padding:4,fontSize:18}}>x</button>
         </div>
@@ -302,14 +302,14 @@ function DupCard({pair, decision, onDecide, index}) {
         <span style={{background:simColor+"20",color:simColor,border:"1px solid "+simColor+"50",borderRadius:5,padding:"2px 8px",fontSize:12,fontWeight:700}}>{sim}% match</span>
       </div>
       <div style={{display:"grid",gridTemplateColumns:"1fr 40px 1fr",gap:8,marginBottom:12,alignItems:"center"}}>
-        <div style={{background:C.bg,borderRadius:8,padding:"10px 12px"}}>
+        <div style={{background:"#f8f7f8",borderRadius:8,padding:"10px 12px"}}>
           <div style={{fontSize:10,color:C.textDim,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:5}}>Existing in SalesOS</div>
           <div style={{fontWeight:700,color:C.textHi,fontSize:14,marginBottom:2}}>{pair.existing.name}</div>
           <div style={{fontSize:12,color:C.textLo,marginBottom:4}}>{pair.existing.industry||"--"}</div>
           <div style={{fontSize:11,color:C.textDim}}>{pair.existing.contacts.length} contacts / {pair.existing.jobs.length} jobs</div>
         </div>
         <div style={{textAlign:"center",color:C.textDim,fontSize:11,fontWeight:700}}>VS</div>
-        <div style={{background:"#0b1520",border:"1px solid #1c2e42",borderRadius:8,padding:"10px 12px"}}>
+        <div style={{background:"#f0f6ff",border:"1px solid #bfdbfe",borderRadius:8,padding:"10px 12px"}}>
           <div style={{fontSize:10,color:C.blue,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:5}}>From Your Excel</div>
           <div style={{fontWeight:700,color:C.textHi,fontSize:14,marginBottom:2}}>{pair.imported.name}</div>
           <div style={{fontSize:12,color:C.textLo,marginBottom:4}}>{pair.imported.industry||"--"}</div>
@@ -347,7 +347,7 @@ function DupReviewStep({dupPairs, decisions, onDecide, onBack, onCommit, totalNe
         <div style={{fontSize:12,color:allDone?C.green:C.textDim}}>{resolved}/{dupPairs.length} resolved</div>
       </div>
 
-      <div style={{background:"#0a0e18",border:"1px solid "+C.border,borderRadius:8,padding:"9px 14px",marginBottom:16,fontSize:12,color:C.textLo,lineHeight:1.9}}>
+      <div style={{background:"#f8f7f8",border:"1px solid "+C.border,borderRadius:8,padding:"9px 14px",marginBottom:16,fontSize:12,color:C.textLo,lineHeight:1.9}}>
         <strong style={{color:C.blue}}>Merge</strong>{" -- fold contacts and jobs into the existing account  "}
         <strong style={{color:C.purple}}>Keep Both</strong>{" -- add as a new separate account  "}
         <strong style={{color:C.textDim}}>Skip</strong>{" -- do not import this account"}
@@ -372,7 +372,7 @@ function DupReviewStep({dupPairs, decisions, onDecide, onBack, onCommit, totalNe
         <button
           disabled={!allDone}
           onClick={onCommit}
-          style={{...btn(allDone?C.gold:"#1e1e1e","#0a0d13"),flex:1,justifyContent:"center",opacity:allDone?1:0.5,cursor:allDone?"pointer":"not-allowed"}}
+          style={{...btn(allDone?C.gold:"#e8e7e8","#1a1820"),flex:1,justifyContent:"center",opacity:allDone?1:0.5,cursor:allDone?"pointer":"not-allowed"}}
         >
           {allDone
             ? "Confirm Import (" + totalNew + " new + " + mergeOrKeep + " from duplicates)"
@@ -793,7 +793,7 @@ function App() {
     if(modal==="importConfirm") return (
       <Modal title="Import from Excel" wide onClose={closeModal}>
         <StepBar active={2}/>
-        <div style={{background:"#0a160a",border:"1px solid #1a3a1a",borderRadius:8,padding:"12px 16px",marginBottom:16,fontSize:13,color:C.textLo}}>
+        <div style={{background:"#f0fdf4",border:"1px solid #22c55e50",borderRadius:8,padding:"12px 16px",marginBottom:16,fontSize:13,color:C.textLo}}>
           <strong style={{color:C.green}}>No duplicates detected.</strong> Ready to import <strong style={{color:C.textHi}}>{iNew.length}</strong> new accounts.
         </div>
         <div style={{maxHeight:240,overflow:"auto",border:`1px solid ${C.border2}`,borderRadius:8,marginBottom:14}}>
@@ -828,7 +828,7 @@ function App() {
               return (
                 <div
                   onClick={function(){setMergeConDecs(function(d){var n={};Object.keys(d).forEach(function(k){n[k]=d[k];});n[pair.a.id+":"+pair.b.id]=con.id;return n;});}}
-                  style={{background:isChosen?"#0a1a0a":C.bg,border:"1px solid "+(isChosen?C.green+"80":C.border2),borderRadius:8,padding:"12px 14px",cursor:"pointer",transition:"all 0.15s",flex:1}}
+                  style={{background:isChosen?"#f0fdf4":C.bg,border:"1px solid "+(isChosen?C.green+"80":C.border2),borderRadius:8,padding:"12px 14px",cursor:"pointer",transition:"all 0.15s",flex:1}}
                 >
                   <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:6}}>
                     <div style={{fontWeight:700,color:isChosen?C.green:C.textHi,fontSize:14}}>{con.name}</div>
@@ -947,10 +947,10 @@ function App() {
         </div>
 
         {alerts.length>0&&(
-          <div style={{background:"#1a1208",border:"1px solid #4a3800",borderRadius:12,padding:"14px 18px",marginBottom:20}}>
+          <div style={{background:"#fefce8",border:"1px solid #f59e0b60",borderRadius:12,padding:"14px 18px",marginBottom:20}}>
             <div style={{color:C.gold,fontWeight:700,marginBottom:10,fontSize:13}}>Overdue Follow-Ups ({alerts.length})</div>
             {alerts.map((al,i)=>(
-              <div key={i} style={{fontSize:13,color:"#9ca3af",marginBottom:4,cursor:"pointer"}} onClick={()=>{setSA(al.accId);setSC(al.conId);setView("contact");}}>
+              <div key={i} style={{fontSize:13,color:"#52525b",marginBottom:4,cursor:"pointer"}} onClick={()=>{setSA(al.accId);setSC(al.conId);setView("contact");}}>
                 {al.conName} ({al.accName}) -- {al.type} follow-up due {al.followUp}
               </div>
             ))}
@@ -980,7 +980,7 @@ function App() {
                   {tag(TIER_COLORS[tier],accs.length)}
                   {dragId&&<span style={{fontSize:11,color:TIER_COLORS[tier],opacity:.7}}>drop here</span>}
                 </div>
-                <div style={{display:"grid",gridTemplateColumns:tier===1?"1fr 1fr":tier===2?"1fr 1fr 1fr":"1fr 1fr 1fr 1fr",gap:14,paddingLeft:tier===1?"13%":tier===2?"6%":0,paddingRight:tier===1?"13%":tier===2?"6%":0,minHeight:isOv?80:0,borderRadius:12,background:isOv?TIER_COLORS[tier]+"08":"transparent",border:`2px dashed ${isOv?TIER_COLORS[tier]+"50":"transparent"}`,padding:isOv?10:0,transition:"all .15s"}}>
+                <div style={{display:"grid",gridTemplateColumns:tier===1?"1fr 1fr":tier===2?"1fr 1fr 1fr":"1fr 1fr 1fr 1fr",gap:14,paddingLeft:tier===1?"13%":tier===2?"6%":0,paddingRight:tier===1?"13%":tier===2?"6%":0,minHeight:isOv?80:0,borderRadius:12,background:isOv?TIER_COLORS[tier]+"18":"transparent",border:`2px dashed ${isOv?TIER_COLORS[tier]+"50":"transparent"}`,padding:isOv?10:0,transition:"all .15s"}}>
                   {accs.map(acc=>{
                     const lastAct=acc.contacts.flatMap(c=>c.activities).sort((a,b)=>new Date(b.date)-new Date(a.date))[0];
                     const ds=lastAct?daysSince(lastAct.date):null;
@@ -1096,17 +1096,17 @@ function App() {
                 </div>
               </div>
             )}
-            {acc.notes&&<><div style={divL}/><div style={lbl}>Notes</div><div style={{color:"#9ca3af",fontSize:13,marginTop:6,lineHeight:1.6}}>{acc.notes}</div></>}
+            {acc.notes&&<><div style={divL}/><div style={lbl}>Notes</div><div style={{color:"#52525b",fontSize:13,marginTop:6,lineHeight:1.6}}>{acc.notes}</div></>}
           </div>
           <div style={card}>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:20}}>
               <div>
                 <div style={{...lbl,color:C.green,marginBottom:10}}>Strengths</div>
-                {acc.pros.length>0?acc.pros.map((p,i)=><div key={i} style={{fontSize:13,color:"#9ca3af",marginBottom:6,lineHeight:1.4}}>{p}</div>):<div style={{color:C.border2,fontSize:13}}>None</div>}
+                {acc.pros.length>0?acc.pros.map((p,i)=><div key={i} style={{fontSize:13,color:"#52525b",marginBottom:6,lineHeight:1.4}}>{p}</div>):<div style={{color:C.border2,fontSize:13}}>None</div>}
               </div>
               <div>
                 <div style={{...lbl,color:C.red,marginBottom:10}}>Risks</div>
-                {acc.cons.length>0?acc.cons.map((c,i)=><div key={i} style={{fontSize:13,color:"#9ca3af",marginBottom:6,lineHeight:1.4}}>{c}</div>):<div style={{color:C.border2,fontSize:13}}>None</div>}
+                {acc.cons.length>0?acc.cons.map((c,i)=><div key={i} style={{fontSize:13,color:"#52525b",marginBottom:6,lineHeight:1.4}}>{c}</div>):<div style={{color:C.border2,fontSize:13}}>None</div>}
               </div>
             </div>
           </div>
@@ -1134,7 +1134,7 @@ function App() {
                   onClick={()=>{setSC(con.id);setView("contact");}}
                   onMouseEnter={e=>e.currentTarget.style.borderColor=C.border2} onMouseLeave={e=>e.currentTarget.style.borderColor=C.border}>
                   <div style={{display:"flex",alignItems:"center",gap:14}}>
-                    <div style={{width:38,height:38,borderRadius:"50%",background:"#1a2035",display:"flex",alignItems:"center",justifyContent:"center",color:C.textDim,flexShrink:0,fontSize:18}}>P</div>
+                    <div style={{width:38,height:38,borderRadius:"50%",background:"#e8e4f0",display:"flex",alignItems:"center",justifyContent:"center",color:C.textDim,flexShrink:0,fontSize:18}}>P</div>
                     <div>
                       <div style={{fontWeight:700,color:C.textHi}}>{con.name}</div>
                       <div style={{fontSize:12,color:C.textDim}}>{con.title}{con.email?` / ${con.email}`:""}</div>
@@ -1203,7 +1203,7 @@ function App() {
             {job.estimatedValue&&<><div style={lbl}>Estimated Value</div><div style={{color:C.gold,fontWeight:700,fontSize:22,marginTop:4,marginBottom:14}}>{job.estimatedValue}</div></>}
             {job.location&&<><div style={lbl}>Location</div><div style={{color:C.text,marginTop:4,marginBottom:14}}>{job.location}</div></>}
             {job.dueDate&&<><div style={lbl}>Decision / Due Date</div><div style={{color:isOverdue(job.dueDate)&&!["Won","Lost"].includes(job.status)?C.red:C.text,marginTop:4,marginBottom:14}}>{job.dueDate}</div></>}
-            {job.notes&&<><div style={divL}/><div style={lbl}>Notes</div><div style={{color:"#9ca3af",fontSize:13,marginTop:6,lineHeight:1.6}}>{job.notes}</div></>}
+            {job.notes&&<><div style={divL}/><div style={lbl}>Notes</div><div style={{color:"#52525b",fontSize:13,marginTop:6,lineHeight:1.6}}>{job.notes}</div></>}
           </div>
           <div style={card}>
             <div style={lbl}>Update Status</div>
@@ -1230,10 +1230,10 @@ function App() {
                 </div>
                 <div style={{display:"flex",gap:4}}>
                   <button onClick={()=>{setForm({...prop,jobId:job.id});setModal("editProp");}} style={{background:"none",border:"none",color:C.textDim,cursor:"pointer",padding:"4px 6px"}}>Edit</button>
-                  <button onClick={()=>delProp(job.id,prop.id)} style={{background:"none",border:"none",color:"#374151",cursor:"pointer",padding:"4px 6px"}}>Del</button>
+                  <button onClick={()=>delProp(job.id,prop.id)} style={{background:"none",border:"none",color:"#9ca3af",cursor:"pointer",padding:"4px 6px"}}>Del</button>
                 </div>
               </div>
-              {prop.notes&&<div style={{marginTop:10,color:"#9ca3af",fontSize:13,lineHeight:1.6}}>{prop.notes}</div>}
+              {prop.notes&&<div style={{marginTop:10,color:"#52525b",fontSize:13,lineHeight:1.6}}>{prop.notes}</div>}
             </div>
           );
         })}
@@ -1243,8 +1243,8 @@ function App() {
           {linked.map(act=>(
             <div key={act.id} style={{...card,marginBottom:12}}>
               <div style={{display:"flex",gap:10,alignItems:"center"}}>{tag(C.blue,act.type)}<span style={{color:C.textDim,fontSize:12}}>{act.date}</span><span style={{color:C.textLo,fontSize:12}}>-- {act.conName}</span></div>
-              {act.notes&&<div style={{marginTop:8,color:"#9ca3af",fontSize:13,lineHeight:1.6}}>{act.notes}</div>}
-              {act.followUp&&<div style={{marginTop:8,padding:"4px 10px",borderRadius:6,display:"inline-flex",gap:6,alignItems:"center",fontSize:12,background:isOverdue(act.followUp)?"#160a0a":"#0a140a",border:`1px solid ${isOverdue(act.followUp)?"#4a1e1e":"#1a3a1a"}`}}><span style={{color:isOverdue(act.followUp)?C.red:C.green}}>Follow-up: {act.followUp}{isOverdue(act.followUp)?" -- OVERDUE":""}</span></div>}
+              {act.notes&&<div style={{marginTop:8,color:"#52525b",fontSize:13,lineHeight:1.6}}>{act.notes}</div>}
+              {act.followUp&&<div style={{marginTop:8,padding:"4px 10px",borderRadius:6,display:"inline-flex",gap:6,alignItems:"center",fontSize:12,background:isOverdue(act.followUp)?"#fef2f2":"#f0fdf4",border:`1px solid ${isOverdue(act.followUp)?"#fca5a5":"#86efac"}`}}><span style={{color:isOverdue(act.followUp)?C.red:C.green}}>Follow-up: {act.followUp}{isOverdue(act.followUp)?" -- OVERDUE":""}</span></div>}
             </div>
           ))}
         </div>
@@ -1262,7 +1262,7 @@ function App() {
           <div>
             <div style={card}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:14}}>
-                <div style={{width:46,height:46,borderRadius:"50%",background:"#1a2035",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,color:C.textDim}}>P</div>
+                <div style={{width:46,height:46,borderRadius:"50%",background:"#e8e4f0",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,color:C.textDim}}>P</div>
                 <button style={btn(null,C.blue,"#1e3a5a")} onClick={()=>{setForm({...con});setModal("editCon");}}>Edit</button>
               </div>
               <div style={{fontFamily:C.serif,fontSize:19,color:C.textHi,marginBottom:2}}>{con.name}</div>
@@ -1271,7 +1271,7 @@ function App() {
               <div style={divL}/>
               <div style={lbl}>Last Contact</div>
               <div style={{color:col,fontSize:13,marginTop:3,marginBottom:10,display:"flex",alignItems:"center",gap:6}}>{dot(col)}{actLabel(ds)}</div>
-              {con.notes&&<><div style={divL}/><div style={lbl}>Notes</div><div style={{color:"#9ca3af",fontSize:13,marginTop:6,lineHeight:1.6}}>{con.notes}</div></>}
+              {con.notes&&<><div style={divL}/><div style={lbl}>Notes</div><div style={{color:"#52525b",fontSize:13,marginTop:6,lineHeight:1.6}}>{con.notes}</div></>}
               {con.activities.length>0&&<><div style={divL}/><div style={lbl}>Activity Breakdown</div><div style={{marginTop:8}}>{ACTIVITY_TYPES.filter(t=>con.activities.some(a=>a.type===t)).map(t=><div key={t} style={{display:"flex",justifyContent:"space-between",fontSize:12,color:C.textLo,marginBottom:5}}><span>{t}</span><span style={{color:C.text,fontWeight:600}}>{con.activities.filter(a=>a.type===t).length}</span></div>)}</div></>}
             </div>
             <button style={{...btn(null,C.red,"#3d1e1e"),width:"100%",justifyContent:"center"}} onClick={()=>delCon(con.id)}>Remove Contact</button>
@@ -1294,11 +1294,11 @@ function App() {
                     </div>
                     <div style={{display:"flex",gap:4}}>
                       <button onClick={()=>{setForm({...act,followUp:act.followUp||""});setModal("editAct");}} style={{background:"none",border:"none",color:C.textDim,cursor:"pointer",padding:"4px 6px"}}>Edit</button>
-                      <button onClick={()=>delAct(act.id)} style={{background:"none",border:"none",color:"#374151",cursor:"pointer",padding:"4px 6px"}}>Del</button>
+                      <button onClick={()=>delAct(act.id)} style={{background:"none",border:"none",color:"#9ca3af",cursor:"pointer",padding:"4px 6px"}}>Del</button>
                     </div>
                   </div>
-                  {act.notes&&<div style={{marginTop:10,color:"#9ca3af",fontSize:13,lineHeight:1.6}}>{act.notes}</div>}
-                  {act.followUp&&<div style={{marginTop:8,padding:"4px 10px",borderRadius:6,display:"inline-flex",gap:6,alignItems:"center",fontSize:12,background:isOverdue(act.followUp)?"#160a0a":"#0a140a",border:`1px solid ${isOverdue(act.followUp)?"#4a1e1e":"#1a3a1a"}`}}><span style={{color:isOverdue(act.followUp)?C.red:C.green}}>Follow-up: {act.followUp}{isOverdue(act.followUp)?" -- OVERDUE":""}</span></div>}
+                  {act.notes&&<div style={{marginTop:10,color:"#52525b",fontSize:13,lineHeight:1.6}}>{act.notes}</div>}
+                  {act.followUp&&<div style={{marginTop:8,padding:"4px 10px",borderRadius:6,display:"inline-flex",gap:6,alignItems:"center",fontSize:12,background:isOverdue(act.followUp)?"#fef2f2":"#f0fdf4",border:`1px solid ${isOverdue(act.followUp)?"#fca5a5":"#86efac"}`}}><span style={{color:isOverdue(act.followUp)?C.red:C.green}}>Follow-up: {act.followUp}{isOverdue(act.followUp)?" -- OVERDUE":""}</span></div>}
                 </div>
               );
             })}
