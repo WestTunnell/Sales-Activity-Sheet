@@ -545,26 +545,52 @@ function App() {
   };
 
   const commitImport = () => {
+    // Snapshot all import state at call time to avoid stale closure issues
+    const snapNew  = iNew.slice();
+    const snapDups = iDups.slice();
+    const snapDecs = {...dupDecs};
     upd(d=>{
-      iNew.forEach(imp=>{
-        d.accounts.push({id:uid(),...imp,contacts:imp.contacts.map(c=>({id:uid(),...c})),jobs:imp.jobs.map(j=>({id:uid(),...j,proposals:[]}))});
+      // 1. Add clean new accounts
+      snapNew.forEach(imp=>{
+        d.accounts.push({
+          id:uid(), name:imp.name, industry:imp.industry||"", markets:imp.markets||[],
+          tier:imp.tier||2, dealSize:"", notes:"", pros:[], cons:[],
+          contacts:imp.contacts.map(c=>({id:uid(),name:c.name,title:c.title||"",email:c.email||"",phone:c.phone||"",notes:"",activities:[]})),
+          jobs:imp.jobs.map(j=>({id:uid(),name:j.name,status:j.status||"Active Pursuit",estimatedValue:j.estimatedValue||"",location:j.location||"",dueDate:j.dueDate||"",notes:j.notes||"",proposals:[]}))
+        });
       });
-      iDups.forEach(pair=>{
-        const dec=dupDecs[pair.imported.name];
+      // 2. Apply decisions for flagged duplicates
+      snapDups.forEach(pair=>{
+        const dec = snapDecs[pair.imported.name];
         if(dec==="merge"){
-          const ex=d.accounts.find(a=>a.id===pair.existing.id);
+          // Match by name since existing.id is from pre-clone snapshot
+          const ex = d.accounts.find(a=>a.name.toLowerCase().trim()===pair.existing.name.toLowerCase().trim());
           if(ex){
-            pair.imported.contacts.forEach(nc=>{if(!ex.contacts.find(c=>c.name.toLowerCase().trim()===nc.name.toLowerCase().trim()))ex.contacts.push({id:uid(),...nc});});
-            pair.imported.jobs.forEach(nj=>{if(!ex.jobs.find(j=>j.name.toLowerCase().trim()===nj.name.toLowerCase().trim()))ex.jobs.push({id:uid(),...nj,proposals:[]});});
-            pair.imported.markets.forEach(m=>{if(!ex.markets.includes(m))ex.markets.push(m);});
+            pair.imported.contacts.forEach(nc=>{
+              if(!ex.contacts.find(c=>c.name.toLowerCase().trim()===nc.name.toLowerCase().trim()))
+                ex.contacts.push({id:uid(),name:nc.name,title:nc.title||"",email:nc.email||"",phone:nc.phone||"",notes:"",activities:[]});
+            });
+            pair.imported.jobs.forEach(nj=>{
+              if(!ex.jobs.find(j=>j.name.toLowerCase().trim()===nj.name.toLowerCase().trim()))
+                ex.jobs.push({id:uid(),name:nj.name,status:nj.status||"Active Pursuit",estimatedValue:nj.estimatedValue||"",location:nj.location||"",dueDate:nj.dueDate||"",notes:nj.notes||"",proposals:[]});
+            });
+            (pair.imported.markets||[]).forEach(m=>{if(!ex.markets.includes(m))ex.markets.push(m);});
           }
         } else if(dec==="keep_both"){
-          d.accounts.push({id:uid(),...pair.imported,contacts:pair.imported.contacts.map(c=>({id:uid(),...c})),jobs:pair.imported.jobs.map(j=>({id:uid(),...j,proposals:[]}))});
+          d.accounts.push({
+            id:uid(), name:pair.imported.name, industry:pair.imported.industry||"", markets:pair.imported.markets||[],
+            tier:pair.imported.tier||2, dealSize:"", notes:"", pros:[], cons:[],
+            contacts:pair.imported.contacts.map(c=>({id:uid(),name:c.name,title:c.title||"",email:c.email||"",phone:c.phone||"",notes:"",activities:[]})),
+            jobs:pair.imported.jobs.map(j=>({id:uid(),name:j.name,status:j.status||"Active Pursuit",estimatedValue:j.estimatedValue||"",location:j.location||"",dueDate:j.dueDate||"",notes:j.notes||"",proposals:[]}))
+          });
         }
+        // dec==="skip" -> do nothing
       });
       return d;
     });
-    closeModal();setIRows([]);setIHdrs([]);setIMap({});setPF(null);setIDups([]);setINew([]);setDupDecs({});
+    closeModal();
+    setIRows([]); setIHdrs([]); setIMap({}); setPF(null);
+    setIDups([]); setINew([]); setDupDecs({});
   };
 
   const AccForm = ({isNew}) => (
@@ -776,7 +802,8 @@ function App() {
   );
 
   const DashView = () => {
-    const tierGroups = TIERS.map(tier=>({tier,accs:filteredAccs.filter(a=>a.tier===tier)}));
+    const sortAlpha = arr => [...arr].sort((a,b)=>a.name.localeCompare(b.name));
+    const tierGroups = TIERS.map(tier=>({tier,accs:sortAlpha(filteredAccs.filter(a=>a.tier===tier))}));
     return (
       <div>
         <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",marginBottom:24}}>
@@ -842,8 +869,15 @@ function App() {
                         onMouseEnter={e=>{if(!isDragging)e.currentTarget.style.borderColor=tc+"70";}}
                         onMouseLeave={e=>e.currentTarget.style.borderColor=C.border}>
                         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8}}>
-                          <div style={{fontWeight:700,color:C.textHi,fontSize:14,lineHeight:1.3,paddingRight:8}}>{acc.name}</div>
-                          {tag(tc,`T${acc.tier}`)}
+                          <div style={{fontWeight:700,color:C.textHi,fontSize:14,lineHeight:1.3,flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",paddingRight:6}}>{acc.name}</div>
+                          <div style={{display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
+                            {tag(tc,`T${acc.tier}`)}
+                            <button
+                              onClick={e=>{e.stopPropagation();if(window.confirm("Delete "+acc.name+"?"))delAcc(acc.id);}}
+                              style={{background:"none",border:"1px solid #3d1e1e",borderRadius:6,color:"#ef444480",cursor:"pointer",fontSize:11,padding:"2px 6px",lineHeight:1.4,fontFamily:C.sans}}
+                              title="Delete account"
+                            >Del</button>
+                          </div>
                         </div>
                         <div style={{color:C.textDim,fontSize:12,marginBottom:6}}>{acc.industry}</div>
                         {(acc.markets||[]).length>0&&(
@@ -872,7 +906,7 @@ function App() {
             );
           })
         ) : (
-          [...filteredAccs].sort((a,b)=>a.tier-b.tier).map(acc=>{
+          [...filteredAccs].sort((a,b)=>a.tier-b.tier||a.name.localeCompare(b.name)).map(acc=>{
             const lastAct=acc.contacts.flatMap(c=>c.activities).sort((a,b)=>new Date(b.date)-new Date(a.date))[0];
             const ds=lastAct?daysSince(lastAct.date):null;
             const col=actColor(ds,YT,RT);
