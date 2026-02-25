@@ -141,6 +141,16 @@ const actColor  = (ds,y,r) => ds === null ? "#4b5563" : ds <= y ? "#22c55e" : ds
 const actLabel  = ds => ds === null ? "No activity" : ds === 0 ? "Today" : ds === 1 ? "Yesterday" : `${ds}d ago`;
 const parseCur  = s => { const n = parseFloat(String(s||"").replace(/[^0-9.]/g,"")); return isNaN(n) ? 0 : n; };
 const fmt$      = n => n ? "$" + n.toLocaleString() : "";
+const fmtVal    = s => {
+  if(!s) return "";
+  const str = String(s).trim();
+  // Already has $ sign - return as-is
+  if(str.startsWith("$")) return str;
+  // Try to parse as a number
+  const n = parseFloat(str.replace(/[^0-9.]/g,""));
+  if(!isNaN(n) && n > 0) return "$" + n.toLocaleString();
+  return str;
+};
 const cloneData = d => JSON.parse(JSON.stringify(d));
 
 function nameSimilarity(a, b) {
@@ -656,78 +666,119 @@ function App() {
     setIDups([]); setINew([]); setDupDecs({});
   };
 
-  const AccForm = ({isNew}) => (
-    <>
-      <Field label="Company Name"><input style={inp} value={form.name||""} onChange={ff("name")} placeholder="Acme Corp"/></Field>
-      <Row>
-        <Field label="Industry" half><input style={inp} value={form.industry||""} onChange={ff("industry")} placeholder="Real Estate..."/></Field>
-        <Field label="Deal Size" half><input style={inp} value={form.dealSize||""} onChange={ff("dealSize")} placeholder="$1.2M"/></Field>
-      </Row>
-      <Field label="Market / Sector Tags"><MarketSelector selected={form.markets||[]} onChange={v=>fv("markets",v)} allMarkets={allMarkets}/></Field>
-      <Field label="Tier"><select style={inp} value={form.tier||2} onChange={ff("tier")}>{TIERS.map(t=><option key={t} value={t}>Tier {t} -- {TIER_LABELS[t]}</option>)}</select></Field>
-      <Field label="Notes"><textarea style={{...inp,resize:"vertical",height:60}} value={form.notes||""} onChange={ff("notes")}/></Field>
-      <Row>
-        <Field label="Strengths (one per line)" half><textarea style={{...inp,resize:"vertical",height:80}} value={form.pros||""} onChange={ff("pros")}/></Field>
-        <Field label="Risks (one per line)" half><textarea style={{...inp,resize:"vertical",height:80}} value={form.cons||""} onChange={ff("cons")}/></Field>
-      </Row>
-      <button style={{...btn(C.gold,"#0a0d13"),width:"100%",justifyContent:"center",marginTop:4}} onClick={()=>saveAcc(isNew)}>{isNew?"Add Account":"Save Changes"}</button>
-    </>
-  );
-  const ConForm = ({isNew}) => (
-    <>
-      <Field label="Full Name"><input style={inp} value={form.name||""} onChange={ff("name")}/></Field>
-      <Row>
-        <Field label="Title" half><input style={inp} value={form.title||""} onChange={ff("title")}/></Field>
-        <Field label="Email" half><input style={inp} value={form.email||""} onChange={ff("email")}/></Field>
-      </Row>
-      <Field label="Phone"><input style={inp} value={form.phone||""} onChange={ff("phone")}/></Field>
-      <Field label="Notes"><textarea style={{...inp,resize:"vertical",height:70}} value={form.notes||""} onChange={ff("notes")}/></Field>
-      <button style={{...btn(C.gold,"#0a0d13"),width:"100%",justifyContent:"center",marginTop:4}} onClick={()=>saveCon(isNew)}>{isNew?"Add Contact":"Save Changes"}</button>
-    </>
-  );
-  const JobForm = ({isNew}) => (
-    <>
-      <Field label="Job / Opportunity Name"><input style={inp} value={form.name||""} onChange={ff("name")}/></Field>
-      <Row>
-        <Field label="Status" half><select style={inp} value={form.status||"Active Pursuit"} onChange={ff("status")}>{JOB_STATUSES.map(s=><option key={s} value={s}>{s}</option>)}</select></Field>
-        <Field label="Est. Value" half><input style={inp} value={form.estimatedValue||""} onChange={ff("estimatedValue")} placeholder="$500,000"/></Field>
-      </Row>
-      <Row>
-        <Field label="Location" half><input style={inp} value={form.location||""} onChange={ff("location")} placeholder="Phoenix, AZ"/></Field>
-        <Field label="Decision Date" half><input type="date" style={inp} value={form.dueDate||""} onChange={ff("dueDate")}/></Field>
-      </Row>
-      <Field label="Notes"><textarea style={{...inp,resize:"vertical",height:70}} value={form.notes||""} onChange={ff("notes")}/></Field>
-      <button style={{...btn(C.gold,"#0a0d13"),width:"100%",justifyContent:"center",marginTop:4}} onClick={()=>saveJob(isNew)}>{isNew?"Add Job":"Save Changes"}</button>
-    </>
-  );
-  const PropForm = ({isNew}) => (
-    <>
-      <Row>
-        <Field label="Amount" half><input style={inp} value={form.amount||""} onChange={ff("amount")} placeholder="$240,000"/></Field>
-        <Field label="Submitted Date" half><input type="date" style={inp} value={form.submittedDate||""} onChange={ff("submittedDate")}/></Field>
-      </Row>
-      <Field label="Outcome"><select style={inp} value={form.outcome||"Pending"} onChange={ff("outcome")}>{PROPOSAL_OUTCOMES.map(o=><option key={o} value={o}>{o}</option>)}</select></Field>
-      <Field label="Notes"><textarea style={{...inp,resize:"vertical",height:80}} value={form.notes||""} onChange={ff("notes")}/></Field>
-      <button style={{...btn(C.gold,"#0a0d13"),width:"100%",justifyContent:"center",marginTop:4}} onClick={()=>saveProp(isNew)}>{isNew?"Add Proposal":"Save Changes"}</button>
-    </>
-  );
-  const ActForm = ({isNew}) => {
-    const jobs = gAcc()&&gAcc().jobs || [];
+  const AccForm = ({isNew}) => {
+    const init = isNew ? {name:"",industry:"",markets:form.markets||[],tier:form.tier||2,notes:"",pros:"",cons:""} : {name:form.name||"",industry:form.industry||"",markets:form.markets||[],tier:form.tier||2,notes:form.notes||"",pros:form.pros||"",cons:form.cons||""};
+    const [f, setF] = useState(init);
+    const upF = k => e => setF(p=>({...p,[k]:e.target.value}));
+    return (
+      <>
+        <Field label="Company Name"><input style={inp} value={f.name} onChange={upF("name")} placeholder="Acme Corp"/></Field>
+        <Field label="Industry"><input style={inp} value={f.industry} onChange={upF("industry")} placeholder="Real Estate..."/></Field>
+        <Field label="Market / Sector Tags"><MarketSelector selected={f.markets||[]} onChange={v=>setF(p=>({...p,markets:v}))} allMarkets={allMarkets}/></Field>
+        <Field label="Tier"><select style={inp} value={f.tier} onChange={upF("tier")}>{TIERS.map(t=><option key={t} value={t}>Tier {t} -- {TIER_LABELS[t]}</option>)}</select></Field>
+        <Field label="Notes"><textarea style={{...inp,resize:"vertical",height:60}} value={f.notes} onChange={upF("notes")}/></Field>
+        <Row>
+          <Field label="Strengths (one per line)" half><textarea style={{...inp,resize:"vertical",height:80}} value={f.pros} onChange={upF("pros")}/></Field>
+          <Field label="Risks (one per line)" half><textarea style={{...inp,resize:"vertical",height:80}} value={f.cons} onChange={upF("cons")}/></Field>
+        </Row>
+        <button style={{...btn(C.gold,"#0a0d13"),width:"100%",justifyContent:"center",marginTop:4}} onClick={()=>{
+          const b={name:f.name||"New Account",industry:f.industry||"",markets:f.markets||[],tier:parseInt(f.tier)||2,notes:f.notes||"",pros:f.pros.split("\n").filter(Boolean),cons:f.cons.split("\n").filter(Boolean)};
+          if(isNew) upd(d=>{d.accounts.push({id:uid(),...b,jobs:[],contacts:[]});return d;});
+          else upd(d=>{const a=d.accounts.find(a=>a.id===form.id);if(a){a.name=b.name;a.industry=b.industry;a.markets=b.markets;a.tier=b.tier;a.notes=b.notes;a.pros=b.pros;a.cons=b.cons;}return d;});
+          closeModal();
+        }}>{isNew?"Add Account":"Save Changes"}</button>
+      </>
+    );
+  };
+  const ConForm = ({isNew}) => {
+    const [f, setF] = useState({name:form.name||"",title:form.title||"",email:form.email||"",phone:form.phone||"",notes:form.notes||""});
+    const upF = k => e => setF(p=>({...p,[k]:e.target.value}));
+    return (
+      <>
+        <Field label="Full Name"><input style={inp} value={f.name} onChange={upF("name")}/></Field>
+        <Row>
+          <Field label="Title" half><input style={inp} value={f.title} onChange={upF("title")}/></Field>
+          <Field label="Email" half><input style={inp} value={f.email} onChange={upF("email")}/></Field>
+        </Row>
+        <Field label="Phone"><input style={inp} value={f.phone} onChange={upF("phone")}/></Field>
+        <Field label="Notes"><textarea style={{...inp,resize:"vertical",height:70}} value={f.notes} onChange={upF("notes")}/></Field>
+        <button style={{...btn(C.gold,"#0a0d13"),width:"100%",justifyContent:"center",marginTop:4}} onClick={()=>{
+          const b={name:f.name||"New Contact",title:f.title||"",email:f.email||"",phone:f.phone||"",notes:f.notes||""};
+          if(isNew) upd(d=>{d.accounts.find(a=>a.id===selAcc).contacts.push({id:uid(),...b,activities:[]});return d;});
+          else upd(d=>{Object.assign(d.accounts.find(a=>a.id===selAcc).contacts.find(c=>c.id===form.id),b);return d;});
+          closeModal();
+        }}>{isNew?"Add Contact":"Save Changes"}</button>
+      </>
+    );
+  };
+  const JobForm = ({isNew}) => {
+    const [f, setF] = useState({name:form.name||"",status:form.status||"Active Pursuit",estimatedValue:form.estimatedValue||"",location:form.location||"",dueDate:form.dueDate||"",notes:form.notes||""});
+    const upF = k => e => setF(p=>({...p,[k]:e.target.value}));
+    return (
+      <>
+        <Field label="Job / Opportunity Name"><input style={inp} value={f.name} onChange={upF("name")}/></Field>
+        <Row>
+          <Field label="Status" half><select style={inp} value={f.status} onChange={upF("status")}>{JOB_STATUSES.map(s=><option key={s} value={s}>{s}</option>)}</select></Field>
+          <Field label="Est. Value" half><input style={inp} value={f.estimatedValue} onChange={upF("estimatedValue")} placeholder="$500,000"/></Field>
+        </Row>
+        <Row>
+          <Field label="Location" half><input style={inp} value={f.location} onChange={upF("location")} placeholder="Phoenix, AZ"/></Field>
+          <Field label="Decision Date" half><input type="date" style={inp} value={f.dueDate} onChange={upF("dueDate")}/></Field>
+        </Row>
+        <Field label="Notes"><textarea style={{...inp,resize:"vertical",height:70}} value={f.notes} onChange={upF("notes")}/></Field>
+        <button style={{...btn(C.gold,"#0a0d13"),width:"100%",justifyContent:"center",marginTop:4}} onClick={()=>{
+          const b={name:f.name||"New Job",status:f.status||"Active Pursuit",estimatedValue:f.estimatedValue||"",location:f.location||"",dueDate:f.dueDate||"",notes:f.notes||""};
+          if(isNew) upd(d=>{d.accounts.find(a=>a.id===selAcc).jobs.push({id:uid(),...b,proposals:[]});return d;});
+          else upd(d=>{Object.assign(d.accounts.find(a=>a.id===selAcc).jobs.find(j=>j.id===form.id),b);return d;});
+          closeModal();
+        }}>{isNew?"Add Job":"Save Changes"}</button>
+      </>
+    );
+  };
+  const PropForm = ({isNew}) => {
+    const [f, setF] = useState({amount:form.amount||"",submittedDate:form.submittedDate||new Date().toISOString().slice(0,10),outcome:form.outcome||"Pending",notes:form.notes||""});
+    const upF = k => e => setF(p=>({...p,[k]:e.target.value}));
     return (
       <>
         <Row>
-          <Field label="Activity Type" half><select style={inp} value={form.type||"Email"} onChange={ff("type")}>{ACTIVITY_TYPES.map(t=><option key={t} value={t}>{t}</option>)}</select></Field>
-          <Field label="Date" half><input type="date" style={inp} value={form.date||""} onChange={ff("date")}/></Field>
+          <Field label="Amount" half><input style={inp} value={f.amount} onChange={upF("amount")} placeholder="$240,000"/></Field>
+          <Field label="Submitted Date" half><input type="date" style={inp} value={f.submittedDate} onChange={upF("submittedDate")}/></Field>
+        </Row>
+        <Field label="Outcome"><select style={inp} value={f.outcome} onChange={upF("outcome")}>{PROPOSAL_OUTCOMES.map(o=><option key={o} value={o}>{o}</option>)}</select></Field>
+        <Field label="Notes"><textarea style={{...inp,resize:"vertical",height:80}} value={f.notes} onChange={upF("notes")}/></Field>
+        <button style={{...btn(C.gold,"#0a0d13"),width:"100%",justifyContent:"center",marginTop:4}} onClick={()=>{
+          const b={amount:f.amount||"",submittedDate:f.submittedDate||new Date().toISOString().slice(0,10),notes:f.notes||"",outcome:f.outcome||"Pending"};
+          if(isNew) upd(d=>{d.accounts.find(a=>a.id===selAcc).jobs.find(j=>j.id===selJob).proposals.push({id:uid(),...b});return d;});
+          else upd(d=>{const j=d.accounts.find(a=>a.id===selAcc).jobs.find(j=>j.id===form.jobId);Object.assign(j.proposals.find(p=>p.id===form.id),b);return d;});
+          closeModal();
+        }}>{isNew?"Add Proposal":"Save Changes"}</button>
+      </>
+    );
+  };
+  const ActForm = ({isNew}) => {
+    const jobs = gAcc()&&gAcc().jobs || [];
+    const [f, setF] = useState({type:form.type||"Email",date:form.date||new Date().toISOString().slice(0,10),jobId:form.jobId||"",notes:form.notes||"",followUp:form.followUp||""});
+    const upF = k => e => setF(p=>({...p,[k]:e.target.value}));
+    return (
+      <>
+        <Row>
+          <Field label="Activity Type" half><select style={inp} value={f.type} onChange={upF("type")}>{ACTIVITY_TYPES.map(t=><option key={t} value={t}>{t}</option>)}</select></Field>
+          <Field label="Date" half><input type="date" style={inp} value={f.date} onChange={upF("date")}/></Field>
         </Row>
         <Field label="Linked Job (optional)">
-          <select style={inp} value={form.jobId||""} onChange={ff("jobId")}>
+          <select style={inp} value={f.jobId} onChange={upF("jobId")}>
             <option value="">-- General / No specific job --</option>
             {jobs.map(j=><option key={j.id} value={j.id}>{j.name}</option>)}
           </select>
         </Field>
-        <Field label="Notes"><textarea style={{...inp,resize:"vertical",height:90}} value={form.notes||""} onChange={ff("notes")} placeholder="What happened? Key takeaways, next steps..."/></Field>
-        <Field label="Follow-Up Date (optional)"><input type="date" style={inp} value={form.followUp||""} onChange={ff("followUp")}/></Field>
-        <button style={{...btn(C.gold,"#0a0d13"),width:"100%",justifyContent:"center",marginTop:4}} onClick={()=>saveAct(isNew)}>{isNew?"Log Activity":"Save Changes"}</button>
+        <Field label="Notes"><textarea style={{...inp,resize:"vertical",height:90}} value={f.notes} onChange={upF("notes")} placeholder="What happened? Key takeaways, next steps..."/></Field>
+        <Field label="Follow-Up Date (optional)"><input type="date" style={inp} value={f.followUp} onChange={upF("followUp")}/></Field>
+        <button style={{...btn(C.gold,"#0a0d13"),width:"100%",justifyContent:"center",marginTop:4}} onClick={()=>{
+          const b={type:f.type||"Email",date:f.date||new Date().toISOString().slice(0,10),notes:f.notes||"",followUp:f.followUp||null,jobId:f.jobId||null};
+          if(isNew) upd(d=>{d.accounts.find(a=>a.id===selAcc).contacts.find(c=>c.id===selCon).activities.unshift({id:uid(),...b});return d;});
+          else upd(d=>{const acts=d.accounts.find(a=>a.id===selAcc).contacts.find(c=>c.id===selCon).activities;Object.assign(acts.find(x=>x.id===form.id),b);acts.sort((a,b)=>new Date(b.date)-new Date(a.date));return d;});
+          closeModal();
+        }}>{isNew?"Log Activity":"Save Changes"}</button>
       </>
     );
   };
@@ -1170,7 +1221,7 @@ function App() {
                       {job.location&&<span style={{fontSize:12,color:C.textDim}}>{job.location}</span>}
                     </div>
                     <div style={{display:"flex",alignItems:"center",gap:14}}>
-                      {(job.estimatedValue||(lp&&lp.amount))&&<span style={{color:C.gold,fontWeight:700}}>{job.estimatedValue||lp.amount}</span>}
+                      {(job.estimatedValue||(lp&&lp.amount))&&<span style={{color:C.gold,fontWeight:700}}>{fmtVal(job.estimatedValue)||lp.amount}</span>}
                       <span style={{color:C.textLo}}>></span>
                     </div>
                   </div>
@@ -1200,7 +1251,7 @@ function App() {
                 <button style={btn(null,C.red,"#3d1e1e")} onClick={()=>delJob(job.id)}>Delete</button>
               </div>
             </div>
-            {job.estimatedValue&&<><div style={lbl}>Estimated Value</div><div style={{color:C.gold,fontWeight:700,fontSize:22,marginTop:4,marginBottom:14}}>{job.estimatedValue}</div></>}
+            {job.estimatedValue&&<><div style={lbl}>Estimated Value</div><div style={{color:C.gold,fontWeight:700,fontSize:22,marginTop:4,marginBottom:14}}>{fmtVal(job.estimatedValue)}</div></>}
             {job.location&&<><div style={lbl}>Location</div><div style={{color:C.text,marginTop:4,marginBottom:14}}>{job.location}</div></>}
             {job.dueDate&&<><div style={lbl}>Decision / Due Date</div><div style={{color:isOverdue(job.dueDate)&&!["Won","Lost"].includes(job.status)?C.red:C.text,marginTop:4,marginBottom:14}}>{job.dueDate}</div></>}
             {job.notes&&<><div style={divL}/><div style={lbl}>Notes</div><div style={{color:"#52525b",fontSize:13,marginTop:6,lineHeight:1.6}}>{job.notes}</div></>}
