@@ -1,0 +1,999 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>SalesOS</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=DM+Sans:wght@400;600;700&display=swap" rel="stylesheet"/>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+body{background:#090c13;color:#c9c4bc;font-family:'DM Sans','Helvetica Neue',sans-serif;font-size:14px;}
+button,input,select,textarea{font-family:'DM Sans','Helvetica Neue',sans-serif;}
+input[type="date"]::-webkit-calendar-picker-indicator{filter:invert(0.4);}
+select option{background:#111620;}
+::-webkit-scrollbar{width:6px;}
+::-webkit-scrollbar-track{background:#090c13;}
+::-webkit-scrollbar-thumb{background:#232938;border-radius:3px;}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const {useState,useEffect,useRef} = React;
+
+const STORAGE_KEY = "sales_os_v5";
+const DEFAULT_MARKETS = ["General Contractor","Construction Manager","Owner / Developer","Home Builder","Subcontractor","Design-Build","Healthcare","Industrial","Government / Public","Mixed-Use / Multifamily"];
+const JOB_STATUSES   = ["Active Pursuit","Proposal Pending","Won","Lost","On Hold","Budget / Budgetary Only"];
+const STATUS_COLORS  = {"Active Pursuit":"#7EB8F7","Proposal Pending":"#E8C547","Won":"#22c55e","Lost":"#ef4444","On Hold":"#9B8FD4","Budget / Budgetary Only":"#6b7280"};
+const ACTIVITY_TYPES = ["Email","Proposal","Phone Call","Coffee","Lunch","Happy Hour","Market Event","Entertainment","Site Visit","LinkedIn Connection Request","LinkedIn Message","LinkedIn Engagement","Other"];
+const TIERS          = [1,2,3];
+const TIER_LABELS    = {1:"Priority",2:"Developing",3:"Long Game"};
+const TIER_COLORS    = {1:"#E8C547",2:"#7EB8F7",3:"#9B8FD4"};
+const PROPOSAL_OUTCOMES = ["Pending","Won","Lost","No Bid","Revised"];
+
+const IMPORT_FIELDS = [
+  {key:"companyName",  label:"Company Name"},
+  {key:"industry",     label:"Industry"},
+  {key:"markets",      label:"Market / Sector"},
+  {key:"contactName",  label:"Contact Name"},
+  {key:"contactTitle", label:"Contact Title"},
+  {key:"contactEmail", label:"Contact Email"},
+  {key:"contactPhone", label:"Contact Phone"},
+  {key:"jobName",      label:"Job / Project Name"},
+  {key:"jobStatus",    label:"Job Status"},
+  {key:"jobValue",     label:"Job Value / Amount"},
+  {key:"jobLocation",  label:"Job Location"},
+  {key:"jobDueDate",   label:"Decision / Due Date"},
+  {key:"jobNotes",     label:"Job Notes"},
+  {key:"tier",         label:"Tier (1/2/3)"},
+  {key:"ignore",       label:"— Ignore —"},
+];
+
+const DEFAULT_DATA = {
+  accounts:[
+    {id:"a1",name:"Meridian Capital Group",industry:"Private Equity",markets:["Owner / Developer"],tier:1,dealSize:"",notes:"",
+     pros:["Strong Q4 budget","Warm intro via Harmon"],cons:["Long procurement cycle","3 competing bids"],
+     jobs:[
+       {id:"j1",name:"HQ Renovation Phase 1",status:"Proposal Pending",estimatedValue:"",location:"Downtown Phoenix",dueDate:"2026-03-15",notes:"Main lobby + 3 floors",
+        proposals:[{id:"p1",amount:"$240,000",submittedDate:"2026-02-10",notes:"Initial proposal submitted.",outcome:"Pending"}]},
+       {id:"j2",name:"Parking Structure Feasibility",status:"Active Pursuit",estimatedValue:"",location:"",dueDate:"",notes:"Budget study requested",proposals:[]}
+     ],
+     contacts:[
+       {id:"c1",name:"Sarah Whitfield",title:"VP of Operations",email:"s.whitfield@meridian.com",phone:"",notes:"",
+        activities:[
+          {id:"act1",type:"Proposal",date:"2026-02-10",notes:"Walked through Phase 1 proposal.",followUp:"2026-02-24",jobId:"j1"},
+          {id:"act2",type:"Lunch",date:"2026-01-28",notes:"Great lunch at Nobu. Decision maker.",followUp:null,jobId:null},
+        ]},
+       {id:"c2",name:"Derek Olson",title:"CFO",email:"d.olson@meridian.com",phone:"",notes:"",
+        activities:[
+          {id:"act3",type:"LinkedIn Connection Request",date:"2026-01-15",notes:"Connected after industry conference.",followUp:null,jobId:null},
+          {id:"act4",type:"Coffee",date:"2026-02-05",notes:"Intro meeting. Discussed parking structure.",followUp:"2026-03-01",jobId:"j2"},
+        ]}
+     ]},
+    {id:"a2",name:"Vantage Development LLC",industry:"Commercial Real Estate",markets:["Owner / Developer","Mixed-Use / Multifamily"],tier:1,dealSize:"",notes:"",
+     pros:["Referral from existing client"],cons:["Budget constraints Q1"],
+     jobs:[
+       {id:"j3",name:"Retail Buildout — Tower B",status:"Won",estimatedValue:"",location:"Scottsdale, AZ",dueDate:"",notes:"Awarded Jan 2026",
+        proposals:[{id:"p2",amount:"$185,000",submittedDate:"2025-12-01",notes:"Competitive bid.",outcome:"Won"}]},
+       {id:"j4",name:"Tower C Pre-Design",status:"Active Pursuit",estimatedValue:"",location:"Scottsdale, AZ",dueDate:"2026-04-01",notes:"Following Tower B success",proposals:[]}
+     ],
+     contacts:[
+       {id:"c3",name:"Marcus Chen",title:"Director of Projects",email:"m.chen@vantagedev.com",phone:"",notes:"",
+        activities:[
+          {id:"act5",type:"Happy Hour",date:"2026-02-14",notes:"Discussed Tower C timeline.",followUp:"2026-02-28",jobId:"j4"},
+          {id:"act6",type:"LinkedIn Message",date:"2026-02-01",notes:"Sent congratulations on Tower B award.",followUp:null,jobId:"j4"},
+        ]}
+     ]},
+    {id:"a3",name:"Ashford Industrial Partners",industry:"Manufacturing",markets:["Industrial","General Contractor"],tier:2,dealSize:"",notes:"",
+     pros:["Growing division","No incumbent vendor"],cons:["Price sensitive"],
+     jobs:[{id:"j5",name:"Warehouse Expansion Study",status:"Budget / Budgetary Only",estimatedValue:"",location:"Mesa, AZ",dueDate:"",notes:"ROM only",proposals:[{id:"p3",amount:"$25,000",submittedDate:"2026-02-18",notes:"ROM figure provided.",outcome:"Pending"}]}],
+     contacts:[{id:"c4",name:"Linda Park",title:"Procurement Manager",email:"l.park@ashfordindustrial.com",phone:"",notes:"",activities:[{id:"act7",type:"Email",date:"2026-02-18",notes:"Cold outreach with capabilities deck.",followUp:"2026-02-25",jobId:"j5"}]}]},
+    {id:"a4",name:"Northgate Healthcare Systems",industry:"Healthcare",markets:["Healthcare"],tier:2,dealSize:"",notes:"",pros:["Expanding to 3 new facilities"],cons:["Compliance complexity"],jobs:[],contacts:[]},
+    {id:"a5",name:"Elmwood Logistics Group",industry:"Logistics",markets:["Industrial"],tier:3,dealSize:"",notes:"",pros:["Long-term relationship potential"],cons:["Not actively looking"],jobs:[],contacts:[]},
+  ],
+  settings:{userName:"Me",yellowThreshold:14,redThreshold:30,markets:[...DEFAULT_MARKETS]}
+};
+
+// ── storage (localStorage fallback for web) ───────────────────────────────────
+async function loadData() {
+  try {
+    let raw = null;
+    if (window.storage) {
+      const r = await window.storage.get(STORAGE_KEY);
+      if (r) raw = r.value;
+    } else {
+      raw = localStorage.getItem(STORAGE_KEY);
+    }
+    if (raw) {
+      const d = JSON.parse(raw);
+      if (!d.settings) d.settings = DEFAULT_DATA.settings;
+      if (!d.settings.markets) d.settings.markets = [...DEFAULT_MARKETS];
+      d.accounts.forEach(a => {
+        if (!a.jobs) a.jobs = [];
+        if (!a.markets) a.markets = [];
+        a.contacts.forEach(c => c.activities.forEach(act => { if (!("jobId" in act)) act.jobId = null; }));
+      });
+      return d;
+    }
+  } catch(e) { console.warn("Load error:", e); }
+  return JSON.parse(JSON.stringify(DEFAULT_DATA));
+}
+
+async function saveData(d) {
+  try {
+    const raw = JSON.stringify(d);
+    if (window.storage) {
+      await window.storage.set(STORAGE_KEY, raw);
+    } else {
+      localStorage.setItem(STORAGE_KEY, raw);
+    }
+  } catch(e) { console.warn("Save error:", e); }
+}
+
+// ── utils ──────────────────────────────────────────────────────────────────────
+const uid       = () => Math.random().toString(36).slice(2,9);
+const daysSince = d => d ? Math.floor((Date.now() - new Date(d)) / 86400000) : null;
+const isOverdue = d => d ? new Date(d) < new Date() : false;
+const actColor  = (ds,y,r) => ds === null ? "#4b5563" : ds <= y ? "#22c55e" : ds <= r ? "#f59e0b" : "#ef4444";
+const actLabel  = ds => ds === null ? "No activity" : ds === 0 ? "Today" : ds === 1 ? "Yesterday" : `${ds}d ago`;
+const parseCur  = s => { const n = parseFloat(String(s||"").replace(/[^0-9.]/g,"")); return isNaN(n) ? 0 : n; };
+const fmt$      = n => n ? "$" + n.toLocaleString() : "";
+const cloneData = d => JSON.parse(JSON.stringify(d));
+
+function matchStatus(raw) {
+  if (!raw) return "Active Pursuit";
+  const s = raw.toLowerCase().trim();
+  if (/^won$|awarded|award|selected/.test(s))           return "Won";
+  if (/^lost$|no.?award|not.?select|no.?bid|declined/.test(s)) return "Lost";
+  if (/hold|pause|defer/.test(s))                       return "On Hold";
+  if (/budget|rom|feasib|prelim|study/.test(s))         return "Budget / Budgetary Only";
+  if (/submit|sent|pending|under.?review/.test(s))      return "Proposal Pending";
+  return JOB_STATUSES.find(j => j.toLowerCase().includes(s) || s.includes(j.toLowerCase())) || "Active Pursuit";
+}
+
+function autoMatch(h) {
+  const s = h.toLowerCase();
+  if (/company|firm|client|org/.test(s))              return "companyName";
+  if (/industry/.test(s))                              return "industry";
+  if (/market|sector/.test(s))                         return "markets";
+  if (/contact|person/.test(s)&&!/email|phone/.test(s)) return "contactName";
+  if (/title|role|position/.test(s))                   return "contactTitle";
+  if (/email/.test(s))                                  return "contactEmail";
+  if (/phone|cell|mobile/.test(s))                     return "contactPhone";
+  if (/job|project|opportunity|scope/.test(s))         return "jobName";
+  if (/status/.test(s))                                return "jobStatus";
+  if (/value|amount|fee|budget|cost/.test(s))          return "jobValue";
+  if (/location|city|address|site/.test(s))            return "jobLocation";
+  if (/due|decision|date|deadline/.test(s))            return "jobDueDate";
+  if (/note|comment/.test(s))                          return "jobNotes";
+  if (/tier|priority|rank/.test(s))                    return "tier";
+  return "ignore";
+}
+
+// ── design tokens ─────────────────────────────────────────────────────────────
+const C = {
+  bg:"#090c13", surface:"#0d1017", border:"#1a1f2e", border2:"#232938",
+  text:"#c9c4bc", textHi:"#f0ede8", textLo:"#6b7280", textDim:"#4b5563",
+  gold:"#E8C547", blue:"#7EB8F7", purple:"#9B8FD4", green:"#22c55e", red:"#ef4444", amber:"#f59e0b",
+  serif:"'DM Serif Display',Georgia,serif", sans:"'DM Sans','Helvetica Neue',sans-serif",
+};
+const inp  = {width:"100%",background:"#0a0e18",border:`1px solid ${C.border2}`,borderRadius:8,color:C.text,padding:"9px 12px",fontSize:14,fontFamily:C.sans,boxSizing:"border-box",outline:"none"};
+const card = {background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:20,marginBottom:14,transition:"border-color 0.15s"};
+const btn  = (bg,col,bord) => ({background:bg||"transparent",color:col||C.text,border:`1px solid ${bord||C.border2}`,borderRadius:8,padding:"7px 14px",fontSize:13,fontWeight:bg?700:400,cursor:"pointer",display:"inline-flex",alignItems:"center",gap:6,fontFamily:C.sans});
+const lbl  = {fontSize:11,letterSpacing:"0.08em",textTransform:"uppercase",color:C.textDim};
+const divL = {height:1,background:C.border,margin:"14px 0"};
+const pill = (c) => ({background:c+"18",color:c,border:`1px solid ${c}50`,borderRadius:6,padding:"2px 9px",fontSize:12,fontWeight:600,whiteSpace:"nowrap"});
+const dot  = (c,sz=8) => React.createElement('span',{style:{width:sz,height:sz,borderRadius:"50%",background:c,display:"inline-block",flexShrink:0}});
+const tag  = (c,txt,onClick) => React.createElement('span',{onClick,style:{...pill(c),cursor:onClick?"pointer":"default"}},txt);
+const tabS = a => ({padding:"9px 18px",fontSize:13,fontWeight:a?700:400,color:a?C.gold:C.textLo,background:"none",border:"none",borderBottom:`2px solid ${a?C.gold:"transparent"}`,cursor:"pointer",fontFamily:C.sans});
+const MARKET_C = C.purple;
+
+// ── tiny components ────────────────────────────────────────────────────────────
+function Modal({title,onClose,children,wide,xwide}) {
+  return (
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.85)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:1000,padding:20}}>
+      <div style={{background:"#111620",border:`1px solid ${C.border2}`,borderRadius:12,width:"100%",maxWidth:xwide?920:wide?680:520,maxHeight:"90vh",overflow:"auto"}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"17px 24px",borderBottom:`1px solid ${C.border}`,position:"sticky",top:0,background:"#111620",zIndex:1}}>
+          <span style={{fontFamily:C.serif,fontSize:18,color:C.textHi}}>{title}</span>
+          <button onClick={onClose} style={{background:"none",border:"none",color:C.textLo,cursor:"pointer",padding:4,fontSize:18}}>✕</button>
+        </div>
+        <div style={{padding:24}}>{children}</div>
+      </div>
+    </div>
+  );
+}
+
+function Field({label,children,half,third}) {
+  const flex = half?"1 1 calc(50% - 6px)":third?"1 1 calc(33% - 8px)":"1 1 100%";
+  return (
+    <div style={{marginBottom:13,flex,minWidth:half?160:third?120:"100%"}}>
+      <label style={{display:"block",fontSize:11,color:C.textLo,letterSpacing:"0.08em",textTransform:"uppercase",marginBottom:5,fontFamily:C.sans}}>{label}</label>
+      {children}
+    </div>
+  );
+}
+const Row = ({children}) => <div style={{display:"flex",gap:12,flexWrap:"wrap"}}>{children}</div>;
+
+function MarketPill({label,onRemove}) {
+  return (
+    <span style={{...pill(MARKET_C),display:"inline-flex",alignItems:"center",gap:5}}>
+      {label}
+      {onRemove && <span onClick={onRemove} style={{cursor:"pointer",opacity:.6,fontSize:14,lineHeight:1}}>×</span>}
+    </span>
+  );
+}
+
+function MarketSelector({selected,onChange,allMarkets}) {
+  const sel = selected || [];
+  return (
+    <div>
+      <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:8}}>
+        {sel.length === 0 && <span style={{color:C.textDim,fontSize:13}}>None selected</span>}
+        {sel.map(m => <MarketPill key={m} label={m} onRemove={() => onChange(sel.filter(x=>x!==m))} />)}
+      </div>
+      <select style={{...inp,width:"auto",fontSize:13}} value="" onChange={e=>{if(e.target.value&&!sel.includes(e.target.value))onChange([...sel,e.target.value]);e.target.value="";}}>
+        <option value="">+ Add market tag…</option>
+        {(allMarkets||[]).filter(m=>!sel.includes(m)).map(m=><option key={m} value={m}>{m}</option>)}
+      </select>
+    </div>
+  );
+}
+
+// ── main app ───────────────────────────────────────────────────────────────────
+function App() {
+  const [data,    setData]    = useState(null);
+  const [view,    setView]    = useState("dash");
+  const [selAcc,  setSA]      = useState(null);
+  const [selCon,  setSC]      = useState(null);
+  const [selJob,  setSJ]      = useState(null);
+  const [accTab,  setAccTab]  = useState("contacts");
+  const [dashTab, setDashTab] = useState("pyramid");
+  const [mktF,    setMktF]    = useState([]);
+  const [modal,   setModal]   = useState(null);
+  const [form,    setForm]    = useState({});
+  const [dragId,  setDragId]  = useState(null);
+  const [dragOver,setDragOver]= useState(null);
+  const [iRows,   setIRows]   = useState([]);
+  const [iHdrs,   setIHdrs]   = useState([]);
+  const [iMap,    setIMap]    = useState({});
+  const [iPrev,   setIPrev]   = useState(null);
+  const [hRow,    setHRow]    = useState(6);
+  const [pendingFile,setPF]   = useState(null);
+  const fileRef = useRef();
+
+  useEffect(()=>{loadData().then(setData);},[]);
+  useEffect(()=>{if(data)saveData(data);},[data]);
+
+  if(!data) return <div style={{background:C.bg,minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",color:C.textLo,fontFamily:C.sans,fontSize:18}}>Loading SalesOS…</div>;
+
+  const upd = fn => setData(prev => fn(cloneData(prev)));
+  const ff  = k  => e => setForm(f=>({...f,[k]:e.target.value}));
+  const fv  = (k,v) => setForm(f=>({...f,[k]:v}));
+
+  const gAcc = (id=selAcc) => data.accounts.find(a=>a.id===id);
+  const gCon = (id=selCon) => gAcc()?.contacts.find(c=>c.id===id);
+  const gJob = (id=selJob) => gAcc()?.jobs.find(j=>j.id===id);
+
+  const {yellowThreshold:YT,redThreshold:RT,userName,markets:allMarkets} = data.settings;
+
+  const alerts = [];
+  data.accounts.forEach(acc=>acc.contacts.forEach(con=>con.activities.forEach(act=>{
+    if(act.followUp&&isOverdue(act.followUp)) alerts.push({accName:acc.name,conName:con.name,type:act.type,followUp:act.followUp,accId:acc.id,conId:con.id});
+  })));
+
+  const pipeSummary = acc => {
+    const active = acc.jobs.filter(j=>!["Won","Lost"].includes(j.status)).length;
+    const won    = acc.jobs.filter(j=>j.status==="Won").length;
+    const val    = acc.jobs.reduce((s,j)=>{const lp=j.proposals[j.proposals.length-1];return s+(lp?parseCur(lp.amount):0);},0);
+    return {active,won,total:acc.jobs.length,val};
+  };
+
+  const filteredAccs = mktF.length===0 ? data.accounts : data.accounts.filter(a=>mktF.every(m=>(a.markets||[]).includes(m)));
+
+  const closeModal = () => {setModal(null);setForm({});};
+
+  // ── save helpers ─────────────────────────────────────────────────────────
+  const saveAcc = isNew => {
+    const b={name:form.name||"New Account",industry:form.industry||"",markets:form.markets||[],tier:parseInt(form.tier)||2,dealSize:form.dealSize||"",notes:form.notes||"",pros:(form.pros||"").split("\n").filter(Boolean),cons:(form.cons||"").split("\n").filter(Boolean)};
+    if(isNew) upd(d=>{d.accounts.push({id:uid(),...b,jobs:[],contacts:[]});return d;});
+    else upd(d=>{Object.assign(d.accounts.find(a=>a.id===form.id),b);return d;});
+    closeModal();
+  };
+  const saveCon = isNew => {
+    const b={name:form.name||"New Contact",title:form.title||"",email:form.email||"",phone:form.phone||"",notes:form.notes||""};
+    if(isNew) upd(d=>{d.accounts.find(a=>a.id===selAcc).contacts.push({id:uid(),...b,activities:[]});return d;});
+    else upd(d=>{Object.assign(d.accounts.find(a=>a.id===selAcc).contacts.find(c=>c.id===form.id),b);return d;});
+    closeModal();
+  };
+  const saveJob = isNew => {
+    const b={name:form.name||"New Job",status:form.status||"Active Pursuit",estimatedValue:form.estimatedValue||"",location:form.location||"",dueDate:form.dueDate||"",notes:form.notes||""};
+    if(isNew) upd(d=>{d.accounts.find(a=>a.id===selAcc).jobs.push({id:uid(),...b,proposals:[]});return d;});
+    else upd(d=>{Object.assign(d.accounts.find(a=>a.id===selAcc).jobs.find(j=>j.id===form.id),b);return d;});
+    closeModal();
+  };
+  const saveAct = isNew => {
+    const b={type:form.type||"Email",date:form.date||new Date().toISOString().slice(0,10),notes:form.notes||"",followUp:form.followUp||null,jobId:form.jobId||null};
+    if(isNew) upd(d=>{d.accounts.find(a=>a.id===selAcc).contacts.find(c=>c.id===selCon).activities.unshift({id:uid(),...b});return d;});
+    else upd(d=>{const acts=d.accounts.find(a=>a.id===selAcc).contacts.find(c=>c.id===selCon).activities;Object.assign(acts.find(x=>x.id===form.id),b);acts.sort((a,b)=>new Date(b.date)-new Date(a.date));return d;});
+    closeModal();
+  };
+  const saveProp = isNew => {
+    const b={amount:form.amount||"",submittedDate:form.submittedDate||new Date().toISOString().slice(0,10),notes:form.notes||"",outcome:form.outcome||"Pending"};
+    if(isNew) upd(d=>{d.accounts.find(a=>a.id===selAcc).jobs.find(j=>j.id===selJob).proposals.push({id:uid(),...b});return d;});
+    else upd(d=>{const j=d.accounts.find(a=>a.id===selAcc).jobs.find(j=>j.id===form.jobId);Object.assign(j.proposals.find(p=>p.id===form.id),b);return d;});
+    closeModal();
+  };
+  const saveSettings = () => {
+    upd(d=>{d.settings={...d.settings,userName:form.userName||"Me",yellowThreshold:parseInt(form.yellowThreshold)||14,redThreshold:parseInt(form.redThreshold)||30};return d;});
+    closeModal();
+  };
+  const saveMarkets = () => {
+    upd(d=>{d.settings.markets=(form.marketList||"").split("\n").map(s=>s.trim()).filter(Boolean);return d;});
+    closeModal();
+  };
+
+  const delAct  = id => upd(d=>{const c=d.accounts.find(a=>a.id===selAcc).contacts.find(c=>c.id===selCon);c.activities=c.activities.filter(x=>x.id!==id);return d;});
+  const delCon  = id => {upd(d=>{d.accounts.find(a=>a.id===selAcc).contacts=d.accounts.find(a=>a.id===selAcc).contacts.filter(c=>c.id!==id);return d;});setSC(null);setView("account");};
+  const delJob  = id => {upd(d=>{d.accounts.find(a=>a.id===selAcc).jobs=d.accounts.find(a=>a.id===selAcc).jobs.filter(j=>j.id!==id);return d;});setSJ(null);setView("account");};
+  const delProp = (jid,pid) => upd(d=>{const j=d.accounts.find(a=>a.id===selAcc).jobs.find(j=>j.id===jid);j.proposals=j.proposals.filter(p=>p.id!==pid);return d;});
+  const delAcc  = id => {upd(d=>{d.accounts=d.accounts.filter(a=>a.id!==id);return d;});setView("dash");setSA(null);};
+  const setTier = (id,t) => upd(d=>{d.accounts.find(a=>a.id===id).tier=t;return d;});
+  const setJobStatus = s => upd(d=>{d.accounts.find(a=>a.id===selAcc).jobs.find(j=>j.id===selJob).status=s;return d;});
+
+  // ── excel import ──────────────────────────────────────────────────────────
+  const handleFile = e => {
+    const file = e.target.files[0]; if(!file) return;
+    setPF(file); setIPrev(null); setIRows([]); setIHdrs([]); setIMap({});
+    setModal("importStep1"); e.target.value="";
+  };
+  const loadXLSX = () => new Promise((res,rej)=>{
+    if(window.XLSX){res(window.XLSX);return;}
+    const s=document.createElement("script");
+    s.src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";
+    s.onload=()=>res(window.XLSX); s.onerror=rej;
+    document.head.appendChild(s);
+  });
+  const parseExcel = () => {
+    if(!pendingFile) return;
+    loadXLSX().then(XLSX=>{
+      const reader=new FileReader();
+      reader.onload=ev=>{
+        try {
+          const wb=XLSX.read(ev.target.result,{type:"binary"});
+          const ws=wb.Sheets[wb.SheetNames[0]];
+          const rows=XLSX.utils.sheet_to_json(ws,{defval:"",range:hRow-1});
+          if(!rows.length){alert(`No data found at row ${hRow}.`);return;}
+          const hdrs=Object.keys(rows[0]);
+          const map={};hdrs.forEach(h=>{map[h]=autoMatch(h);});
+          setIHdrs(hdrs);setIRows(rows);setIMap(map);setIPrev(null);setModal("importStep2");
+        } catch(err){alert("Could not read file: "+err.message);}
+      };
+      reader.readAsBinaryString(pendingFile);
+    }).catch(()=>alert("Could not load Excel reader."));
+  };
+  const previewImport = () => {
+    const accMap={};
+    iRows.forEach(row=>{
+      const get=k=>{const col=Object.keys(iMap).find(c=>iMap[c]===k);return col?String(row[col]||"").trim():"";};
+      const company=get("companyName");if(!company)return;
+      if(!accMap[company]) accMap[company]={name:company,industry:get("industry"),markets:get("markets")?[get("markets")]:[],tier:parseInt(get("tier"))||2,dealSize:"",notes:"",pros:[],cons:[],contacts:[],jobs:[]};
+      const acc=accMap[company];
+      const cn=get("contactName"),cnN=cn.toLowerCase().trim();
+      if(cn&&!acc.contacts.find(c=>c.name.toLowerCase().trim()===cnN)) acc.contacts.push({name:cn,title:get("contactTitle"),email:get("contactEmail"),phone:get("contactPhone"),notes:"",activities:[]});
+      const jn=get("jobName"),jnN=jn.toLowerCase().trim();
+      if(jn&&!acc.jobs.find(j=>j.name.toLowerCase().trim()===jnN)) acc.jobs.push({name:jn,status:matchStatus(get("jobStatus")),estimatedValue:get("jobValue"),location:get("jobLocation"),dueDate:get("jobDueDate"),notes:get("jobNotes"),proposals:[]});
+    });
+    setIPrev(Object.values(accMap));
+  };
+  const commitImport = () => {
+    if(!iPrev) return;
+    upd(d=>{
+      iPrev.forEach(imp=>{
+        const ex=d.accounts.find(a=>a.name.toLowerCase().trim()===imp.name.toLowerCase().trim());
+        if(ex){
+          imp.contacts.forEach(nc=>{if(!ex.contacts.find(c=>c.name.toLowerCase().trim()===nc.name.toLowerCase().trim()))ex.contacts.push({id:uid(),...nc});});
+          imp.jobs.forEach(nj=>{if(!ex.jobs.find(j=>j.name.toLowerCase().trim()===nj.name.toLowerCase().trim()))ex.jobs.push({id:uid(),...nj,proposals:[]});});
+          imp.markets.forEach(m=>{if(!ex.markets.includes(m))ex.markets.push(m);});
+        } else {
+          d.accounts.push({id:uid(),...imp,contacts:imp.contacts.map(c=>({id:uid(),...c})),jobs:imp.jobs.map(j=>({id:uid(),...j,proposals:[]}))});
+        }
+      });
+      return d;
+    });
+    closeModal(); setIRows([]); setIHdrs([]); setIMap({}); setIPrev(null); setPF(null);
+  };
+
+  // ── forms ──────────────────────────────────────────────────────────────────
+  const AccForm = ({isNew}) => (
+    <>
+      <Field label="Company Name"><input style={inp} value={form.name||""} onChange={ff("name")} placeholder="Acme Corp"/></Field>
+      <Row>
+        <Field label="Industry" half><input style={inp} value={form.industry||""} onChange={ff("industry")} placeholder="Real Estate…"/></Field>
+        <Field label="Deal Size" half><input style={inp} value={form.dealSize||""} onChange={ff("dealSize")} placeholder="$1.2M"/></Field>
+      </Row>
+      <Field label="Market / Sector Tags"><MarketSelector selected={form.markets||[]} onChange={v=>fv("markets",v)} allMarkets={allMarkets}/></Field>
+      <Field label="Tier"><select style={inp} value={form.tier||2} onChange={ff("tier")}>{TIERS.map(t=><option key={t} value={t}>Tier {t} — {TIER_LABELS[t]}</option>)}</select></Field>
+      <Field label="Notes"><textarea style={{...inp,resize:"vertical",height:60}} value={form.notes||""} onChange={ff("notes")}/></Field>
+      <Row>
+        <Field label="Strengths (one per line)" half><textarea style={{...inp,resize:"vertical",height:80}} value={form.pros||""} onChange={ff("pros")}/></Field>
+        <Field label="Risks (one per line)" half><textarea style={{...inp,resize:"vertical",height:80}} value={form.cons||""} onChange={ff("cons")}/></Field>
+      </Row>
+      <button style={{...btn(C.gold,"#0a0d13"),width:"100%",justifyContent:"center",marginTop:4}} onClick={()=>saveAcc(isNew)}>{isNew?"Add Account":"Save Changes"}</button>
+    </>
+  );
+  const ConForm = ({isNew}) => (
+    <>
+      <Field label="Full Name"><input style={inp} value={form.name||""} onChange={ff("name")}/></Field>
+      <Row>
+        <Field label="Title" half><input style={inp} value={form.title||""} onChange={ff("title")}/></Field>
+        <Field label="Email" half><input style={inp} value={form.email||""} onChange={ff("email")}/></Field>
+      </Row>
+      <Field label="Phone"><input style={inp} value={form.phone||""} onChange={ff("phone")}/></Field>
+      <Field label="Notes"><textarea style={{...inp,resize:"vertical",height:70}} value={form.notes||""} onChange={ff("notes")}/></Field>
+      <button style={{...btn(C.gold,"#0a0d13"),width:"100%",justifyContent:"center",marginTop:4}} onClick={()=>saveCon(isNew)}>{isNew?"Add Contact":"Save Changes"}</button>
+    </>
+  );
+  const JobForm = ({isNew}) => (
+    <>
+      <Field label="Job / Opportunity Name"><input style={inp} value={form.name||""} onChange={ff("name")}/></Field>
+      <Row>
+        <Field label="Status" half><select style={inp} value={form.status||"Active Pursuit"} onChange={ff("status")}>{JOB_STATUSES.map(s=><option key={s} value={s}>{s}</option>)}</select></Field>
+        <Field label="Est. Value" half><input style={inp} value={form.estimatedValue||""} onChange={ff("estimatedValue")} placeholder="$500,000"/></Field>
+      </Row>
+      <Row>
+        <Field label="Location" half><input style={inp} value={form.location||""} onChange={ff("location")} placeholder="Phoenix, AZ"/></Field>
+        <Field label="Decision Date" half><input type="date" style={inp} value={form.dueDate||""} onChange={ff("dueDate")}/></Field>
+      </Row>
+      <Field label="Notes"><textarea style={{...inp,resize:"vertical",height:70}} value={form.notes||""} onChange={ff("notes")}/></Field>
+      <button style={{...btn(C.gold,"#0a0d13"),width:"100%",justifyContent:"center",marginTop:4}} onClick={()=>saveJob(isNew)}>{isNew?"Add Job":"Save Changes"}</button>
+    </>
+  );
+  const PropForm = ({isNew}) => (
+    <>
+      <Row>
+        <Field label="Amount" half><input style={inp} value={form.amount||""} onChange={ff("amount")} placeholder="$240,000"/></Field>
+        <Field label="Submitted Date" half><input type="date" style={inp} value={form.submittedDate||""} onChange={ff("submittedDate")}/></Field>
+      </Row>
+      <Field label="Outcome"><select style={inp} value={form.outcome||"Pending"} onChange={ff("outcome")}>{PROPOSAL_OUTCOMES.map(o=><option key={o} value={o}>{o}</option>)}</select></Field>
+      <Field label="Notes"><textarea style={{...inp,resize:"vertical",height:80}} value={form.notes||""} onChange={ff("notes")}/></Field>
+      <button style={{...btn(C.gold,"#0a0d13"),width:"100%",justifyContent:"center",marginTop:4}} onClick={()=>saveProp(isNew)}>{isNew?"Add Proposal":"Save Changes"}</button>
+    </>
+  );
+  const ActForm = ({isNew}) => {
+    const jobs = gAcc()?.jobs || [];
+    return (
+      <>
+        <Row>
+          <Field label="Activity Type" half><select style={inp} value={form.type||"Email"} onChange={ff("type")}>{ACTIVITY_TYPES.map(t=><option key={t} value={t}>{t}</option>)}</select></Field>
+          <Field label="Date" half><input type="date" style={inp} value={form.date||""} onChange={ff("date")}/></Field>
+        </Row>
+        <Field label="Linked Job (optional)">
+          <select style={inp} value={form.jobId||""} onChange={ff("jobId")}>
+            <option value="">— General / No specific job —</option>
+            {jobs.map(j=><option key={j.id} value={j.id}>{j.name}</option>)}
+          </select>
+        </Field>
+        <Field label="Notes"><textarea style={{...inp,resize:"vertical",height:90}} value={form.notes||""} onChange={ff("notes")} placeholder="What happened? Key takeaways, next steps…"/></Field>
+        <Field label="Follow-Up Date (optional)"><input type="date" style={inp} value={form.followUp||""} onChange={ff("followUp")}/></Field>
+        <button style={{...btn(C.gold,"#0a0d13"),width:"100%",justifyContent:"center",marginTop:4}} onClick={()=>saveAct(isNew)}>{isNew?"Log Activity":"Save Changes"}</button>
+      </>
+    );
+  };
+
+  // ── modals ────────────────────────────────────────────────────────────────
+  const Modals = () => {
+    if(!modal) return null;
+    if(modal==="addAcc")  return <Modal title="Add Target Account" wide onClose={closeModal}><AccForm isNew={true}/></Modal>;
+    if(modal==="editAcc") return <Modal title="Edit Account" wide onClose={closeModal}><AccForm isNew={false}/></Modal>;
+    if(modal==="addCon")  return <Modal title="Add Contact" onClose={closeModal}><ConForm isNew={true}/></Modal>;
+    if(modal==="editCon") return <Modal title="Edit Contact" onClose={closeModal}><ConForm isNew={false}/></Modal>;
+    if(modal==="addJob")  return <Modal title="Add Job" onClose={closeModal}><JobForm isNew={true}/></Modal>;
+    if(modal==="editJob") return <Modal title="Edit Job" onClose={closeModal}><JobForm isNew={false}/></Modal>;
+    if(modal==="addAct")  return <Modal title="Log Activity" onClose={closeModal}><ActForm isNew={true}/></Modal>;
+    if(modal==="editAct") return <Modal title="Edit Activity" onClose={closeModal}><ActForm isNew={false}/></Modal>;
+    if(modal==="addProp") return <Modal title="Add Proposal" onClose={closeModal}><PropForm isNew={true}/></Modal>;
+    if(modal==="editProp")return <Modal title="Edit Proposal" onClose={closeModal}><PropForm isNew={false}/></Modal>;
+    if(modal==="importStep1") return (
+      <Modal title="Import from Excel — Step 1" onClose={closeModal}>
+        <div style={{fontSize:13,color:C.textLo,lineHeight:1.8,marginBottom:20}}>Tell SalesOS which row contains your <strong style={{color:C.textHi}}>column headers</strong>.</div>
+        <Field label="Header Row Number"><input type="number" style={inp} value={hRow} min={1} onChange={e=>setHRow(parseInt(e.target.value)||1)}/></Field>
+        <div style={{fontSize:12,color:C.textDim,marginBottom:20}}>Rows above row {hRow} will be ignored.</div>
+        <button style={{...btn(C.gold,"#0a0d13"),width:"100%",justifyContent:"center"}} onClick={parseExcel}>Read File →</button>
+      </Modal>
+    );
+    if(modal==="importStep2") return (
+      <Modal title="Import from Excel — Map Columns" xwide onClose={closeModal}>
+        <div style={{background:C.bg,borderRadius:8,padding:"10px 14px",marginBottom:16,fontSize:13,color:C.textLo}}>
+          Found <strong style={{color:C.textHi}}>{iRows.length} rows</strong> and <strong style={{color:C.textHi}}>{iHdrs.length} columns</strong>.{" "}
+          <span style={{color:C.blue,cursor:"pointer",textDecoration:"underline"}} onClick={()=>setModal("importStep1")}>Change row</span>
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:16}}>
+          {iHdrs.map(h=>(
+            <div key={h} style={{background:C.bg,border:`1px solid ${C.border2}`,borderRadius:8,padding:"9px 12px",display:"flex",alignItems:"center",gap:8}}>
+              <div style={{flex:1,fontSize:13,color:C.textHi,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{h}</div>
+              <select style={{...inp,width:"auto",flex:"0 0 180px",fontSize:12}} value={iMap[h]||"ignore"} onChange={e=>setIMap(m=>({...m,[h]:e.target.value}))}>
+                {IMPORT_FIELDS.map(f=><option key={f.key} value={f.key}>{f.label}</option>)}
+              </select>
+            </div>
+          ))}
+        </div>
+        <button style={{...btn(C.blue,C.textHi,C.border2),width:"100%",justifyContent:"center",marginBottom:12}} onClick={previewImport}>Preview Import →</button>
+        {iPrev && (
+          <div>
+            <div style={{...lbl,marginBottom:10}}>{iPrev.length} accounts to import / merge</div>
+            <div style={{maxHeight:240,overflow:"auto",border:`1px solid ${C.border2}`,borderRadius:8,marginBottom:14}}>
+              {iPrev.map((acc,i)=>(
+                <div key={i} style={{padding:"10px 14px",borderBottom:`1px solid ${C.border}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                  <div>
+                    <div style={{fontWeight:700,color:C.textHi,fontSize:13}}>{acc.name}</div>
+                    <div style={{fontSize:12,color:C.textDim}}>{acc.contacts.length} contacts · {acc.jobs.length} jobs</div>
+                  </div>
+                  {data.accounts.find(a=>a.name.toLowerCase()===acc.name.toLowerCase())
+                    ? <span style={{fontSize:11,color:C.gold,border:`1px solid ${C.gold}40`,borderRadius:4,padding:"2px 7px"}}>MERGE</span>
+                    : <span style={{fontSize:11,color:C.green,border:`1px solid ${C.green}40`,borderRadius:4,padding:"2px 7px"}}>NEW</span>}
+                </div>
+              ))}
+            </div>
+            <button style={{...btn(C.gold,"#0a0d13"),width:"100%",justifyContent:"center"}} onClick={commitImport}>✓ Import {iPrev.length} Accounts</button>
+          </div>
+        )}
+      </Modal>
+    );
+    if(modal==="settings") return (
+      <Modal title="Settings" onClose={closeModal}>
+        <Field label="Your Name"><input style={inp} value={form.userName!=null?form.userName:userName} onChange={ff("userName")}/></Field>
+        <div style={divL}/>
+        <div style={{fontFamily:C.serif,fontSize:16,color:C.textHi,marginBottom:10}}>Activity Color Thresholds</div>
+        <Row>
+          <Field label="Green → Yellow (days)" half><input type="number" style={inp} value={form.yellowThreshold!=null?form.yellowThreshold:YT} onChange={ff("yellowThreshold")} min={1}/></Field>
+          <Field label="Yellow → Red (days)" half><input type="number" style={inp} value={form.redThreshold!=null?form.redThreshold:RT} onChange={ff("redThreshold")} min={1}/></Field>
+        </Row>
+        <button style={{...btn(C.gold,"#0a0d13"),width:"100%",justifyContent:"center",marginBottom:16}} onClick={saveSettings}>Save Settings</button>
+        <div style={divL}/>
+        <div style={{fontFamily:C.serif,fontSize:16,color:C.textHi,marginBottom:10}}>Market / Sector Tags</div>
+        <Field label="Edit list (one per line)">
+          <textarea style={{...inp,resize:"vertical",height:180}} value={form.marketList!=null?form.marketList:allMarkets.join("\n")} onChange={ff("marketList")}/>
+        </Field>
+        <button style={{...btn(null,C.textLo,C.border2),width:"100%",justifyContent:"center"}} onClick={saveMarkets}>Save Market List</button>
+      </Modal>
+    );
+    return null;
+  };
+
+  const Legend = () => (
+    <div style={{display:"flex",gap:14,alignItems:"center",fontSize:12,color:C.textDim}}>
+      {[[C.green,`≤${YT}d`],[C.amber,`${YT+1}–${RT}d`],[C.red,`${RT+1}d+`],[C.textDim,"None"]].map(([c,l])=>(
+        <span key={l} style={{display:"flex",alignItems:"center",gap:5}}>{dot(c)}{l}</span>
+      ))}
+    </div>
+  );
+
+  const MktBar = () => (
+    <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center",marginBottom:20}}>
+      <span style={{...lbl,marginRight:4}}>Filter:</span>
+      {(allMarkets||[]).map(m=>{
+        const on=mktF.includes(m);
+        return <button key={m} onClick={()=>setMktF(on?mktF.filter(x=>x!==m):[...mktF,m])} style={{borderRadius:20,padding:"3px 12px",fontSize:12,cursor:"pointer",fontWeight:on?700:400,border:`1px solid ${on?MARKET_C+"80":C.border2}`,background:on?MARKET_C+"22":"transparent",color:on?MARKET_C:C.textDim,fontFamily:C.sans}}>{m}</button>;
+      })}
+      {mktF.length>0&&<button onClick={()=>setMktF([])} style={{...btn(null,C.textLo,C.border2),padding:"3px 10px",fontSize:12}}>Clear</button>}
+    </div>
+  );
+
+  const Crumb = ({items}) => (
+    <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:26}}>
+      {items.map((item,i)=>(
+        <span key={i} style={{display:"flex",alignItems:"center",gap:10}}>
+          {i>0&&<span style={{color:C.border2}}>/</span>}
+          {item.onClick
+            ? <button onClick={item.onClick} style={{background:"none",border:"none",color:i===items.length-1?C.textHi:C.textLo,fontSize:13,cursor:"pointer",padding:0,fontWeight:i===items.length-1?600:400,fontFamily:C.sans}}>{item.label}</button>
+            : <span style={{color:C.textHi,fontWeight:600,fontSize:13}}>{item.label}</span>}
+        </span>
+      ))}
+    </div>
+  );
+
+  // ── dashboard ─────────────────────────────────────────────────────────────
+  const DashView = () => {
+    const tierGroups = TIERS.map(tier=>({tier,accs:filteredAccs.filter(a=>a.tier===tier)}));
+    return (
+      <div>
+        <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",marginBottom:24}}>
+          <div>
+            <div style={{fontFamily:C.serif,fontSize:28,color:C.textHi,marginBottom:6,letterSpacing:"-0.02em"}}>Target Account Overview</div>
+            <div style={{color:C.textDim,fontSize:13}}>{filteredAccs.length} accounts · {filteredAccs.reduce((n,a)=>n+a.contacts.length,0)} contacts · {filteredAccs.reduce((n,a)=>n+a.jobs.length,0)} jobs · {alerts.length} overdue</div>
+          </div>
+          <div style={{display:"flex",gap:8}}>
+            <button style={{...btn(null,C.green,C.border2)}} onClick={()=>fileRef.current.click()}>↑ Import Excel</button>
+            <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" style={{display:"none"}} onChange={handleFile}/>
+            <button style={btn(C.gold,"#0a0d13")} onClick={()=>{setForm({tier:2,markets:[]});setModal("addAcc");}}>+ Add Account</button>
+          </div>
+        </div>
+
+        {alerts.length>0&&(
+          <div style={{background:"#1a1208",border:"1px solid #4a3800",borderRadius:12,padding:"14px 18px",marginBottom:20}}>
+            <div style={{color:C.gold,fontWeight:700,marginBottom:10,fontSize:13}}>⚠ {alerts.length} Overdue Follow-Up{alerts.length!==1?"s":""}</div>
+            {alerts.map((al,i)=>(
+              <div key={i} style={{fontSize:13,color:"#9ca3af",marginBottom:4,cursor:"pointer"}} onClick={()=>{setSA(al.accId);setSC(al.conId);setView("contact");}}>
+                <span style={{color:C.gold}}>→ </span>{al.conName} ({al.accName}) — {al.type} follow-up due {al.followUp}
+              </div>
+            ))}
+          </div>
+        )}
+
+        <MktBar/>
+
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",borderBottom:`1px solid ${C.border}`,marginBottom:28}}>
+          <div style={{display:"flex"}}>
+            {["pyramid","list"].map(t=><button key={t} style={tabS(dashTab===t)} onClick={()=>setDashTab(t)}>{t==="pyramid"?"Tier Pyramid":"Account List"}</button>)}
+          </div>
+          <Legend/>
+        </div>
+
+        {dashTab==="pyramid" ? (
+          tierGroups.map(({tier,accs})=>{
+            const isOv = dragOver===tier && dragId && !accs.find(a=>a.id===dragId);
+            return (
+              <div key={tier} style={{marginBottom:32}}
+                onDragOver={e=>{e.preventDefault();setDragOver(tier);}}
+                onDragLeave={e=>{if(!e.currentTarget.contains(e.relatedTarget))setDragOver(null);}}
+                onDrop={e=>{e.preventDefault();if(dragId){upd(d=>{const a=d.accounts.find(x=>x.id===dragId);if(a)a.tier=tier;return d;});setDragId(null);setDragOver(null);}}} >
+                <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14}}>
+                  {dot(TIER_COLORS[tier])}
+                  <span style={lbl}>Tier {tier} — {TIER_LABELS[tier]}</span>
+                  {tag(TIER_COLORS[tier],accs.length)}
+                  {dragId&&<span style={{fontSize:11,color:TIER_COLORS[tier],opacity:.7}}>← drop here</span>}
+                </div>
+                <div style={{display:"grid",gridTemplateColumns:tier===1?"1fr 1fr":tier===2?"1fr 1fr 1fr":"1fr 1fr 1fr 1fr",gap:14,paddingLeft:tier===1?"13%":tier===2?"6%":0,paddingRight:tier===1?"13%":tier===2?"6%":0,minHeight:isOv?80:0,borderRadius:12,background:isOv?TIER_COLORS[tier]+"08":"transparent",border:`2px dashed ${isOv?TIER_COLORS[tier]+"50":"transparent"}`,padding:isOv?10:0,transition:"all .15s"}}>
+                  {accs.map(acc=>{
+                    const lastAct=acc.contacts.flatMap(c=>c.activities).sort((a,b)=>new Date(b.date)-new Date(a.date))[0];
+                    const ds=lastAct?daysSince(lastAct.date):null;
+                    const col=actColor(ds,YT,RT);
+                    const ps=pipeSummary(acc);
+                    const tc=TIER_COLORS[acc.tier];
+                    const isDragging=dragId===acc.id;
+                    return (
+                      <div key={acc.id} draggable
+                        onDragStart={e=>{setDragId(acc.id);e.dataTransfer.effectAllowed="move";}}
+                        onDragEnd={()=>{setDragId(null);setDragOver(null);}}
+                        onClick={()=>{if(!dragId){setSA(acc.id);setView("account");setAccTab("contacts");}}}
+                        style={{...card,cursor:isDragging?"grabbing":"grab",padding:16,marginBottom:0,opacity:isDragging?.4:1,userSelect:"none"}}
+                        onMouseEnter={e=>{if(!isDragging)e.currentTarget.style.borderColor=tc+"70";}}
+                        onMouseLeave={e=>e.currentTarget.style.borderColor=C.border}>
+                        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8}}>
+                          <div style={{fontWeight:700,color:C.textHi,fontSize:14,lineHeight:1.3,paddingRight:8}}>{acc.name}</div>
+                          {tag(tc,`T${acc.tier}`)}
+                        </div>
+                        <div style={{color:C.textDim,fontSize:12,marginBottom:6}}>{acc.industry}</div>
+                        {(acc.markets||[]).length>0&&(
+                          <div style={{display:"flex",flexWrap:"wrap",gap:4,marginBottom:8}}>
+                            {(acc.markets||[]).slice(0,2).map(m=><MarketPill key={m} label={m}/>)}
+                            {(acc.markets||[]).length>2&&<span style={{fontSize:11,color:C.textDim}}>+{acc.markets.length-2}</span>}
+                          </div>
+                        )}
+                        {ps.total>0&&(
+                          <div style={{display:"flex",gap:8,marginBottom:8,flexWrap:"wrap"}}>
+                            {ps.active>0&&tag(C.blue,`${ps.active} active`)}
+                            {ps.won>0&&tag(C.green,`${ps.won} won`)}
+                            {ps.val>0&&<span style={{color:C.gold,fontWeight:700,fontSize:13}}>{fmt$(ps.val)}</span>}
+                          </div>
+                        )}
+                        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                          <span style={{color:C.textDim,fontSize:11}}>{acc.contacts.length} contacts</span>
+                          <span style={{display:"flex",alignItems:"center",gap:5,fontSize:12,color:col}}>{dot(col)}{actLabel(ds)}</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                  {accs.length===0&&<div style={{color:C.border2,fontSize:13,padding:"12px 0",fontStyle:"italic"}}>Drop an account here for Tier {tier}.</div>}
+                </div>
+              </div>
+            );
+          })
+        ) : (
+          [...filteredAccs].sort((a,b)=>a.tier-b.tier).map(acc=>{
+            const lastAct=acc.contacts.flatMap(c=>c.activities).sort((a,b)=>new Date(b.date)-new Date(a.date))[0];
+            const ds=lastAct?daysSince(lastAct.date):null;
+            const col=actColor(ds,YT,RT);
+            const ps=pipeSummary(acc);
+            return (
+              <div key={acc.id} style={{...card,display:"flex",alignItems:"center",justifyContent:"space-between",cursor:"pointer"}}
+                onClick={()=>{setSA(acc.id);setView("account");setAccTab("contacts");}}
+                onMouseEnter={e=>e.currentTarget.style.borderColor=C.border2} onMouseLeave={e=>e.currentTarget.style.borderColor=C.border}>
+                <div style={{display:"flex",alignItems:"center",gap:14}}>
+                  {tag(TIER_COLORS[acc.tier],`T${acc.tier}`)}
+                  <div>
+                    <div style={{fontWeight:700,color:C.textHi}}>{acc.name}</div>
+                    <div style={{fontSize:12,color:C.textDim,display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
+                      {acc.industry}{(acc.markets||[]).map(m=><MarketPill key={m} label={m}/>)}
+                    </div>
+                  </div>
+                </div>
+                <div style={{display:"flex",alignItems:"center",gap:16}}>
+                  {ps.val>0&&<span style={{color:C.gold,fontWeight:700}}>{fmt$(ps.val)}</span>}
+                  <span style={{display:"flex",alignItems:"center",gap:5,fontSize:12,color:col}}>{dot(col)}{actLabel(ds)}</span>
+                  <span style={{fontSize:12,color:C.textDim}}>{acc.jobs.length} jobs · {acc.contacts.length} contacts</span>
+                  <span style={{color:C.textLo}}>›</span>
+                </div>
+              </div>
+            );
+          })
+        )}
+      </div>
+    );
+  };
+
+  // ── account view ──────────────────────────────────────────────────────────
+  const AccountView = () => {
+    const acc=gAcc(); if(!acc) return null;
+    const ps=pipeSummary(acc);
+    return (
+      <div>
+        <Crumb items={[{label:"Accounts",onClick:()=>setView("dash")},{label:acc.name}]}/>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16,marginBottom:20}}>
+          <div style={card}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:14}}>
+              <div>
+                <div style={{fontFamily:C.serif,fontSize:20,color:C.textHi,marginBottom:3}}>{acc.name}</div>
+                <div style={{color:C.textDim,fontSize:13}}>{acc.industry}</div>
+              </div>
+              <button style={btn(null,C.blue,"#1e3a5a")} onClick={()=>{setForm({...acc,pros:acc.pros.join("\n"),cons:acc.cons.join("\n"),markets:acc.markets||[]});setModal("editAcc");}}>✎ Edit</button>
+            </div>
+            {(acc.markets||[]).length>0&&<div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:14}}>{(acc.markets||[]).map(m=><MarketPill key={m} label={m}/>)}</div>}
+            <div style={{display:"flex",gap:6,marginBottom:14}}>
+              {TIERS.map(t=><button key={t} onClick={()=>setTier(acc.id,t)} style={{borderRadius:6,padding:"4px 10px",fontSize:12,cursor:"pointer",fontWeight:acc.tier===t?700:400,border:`1px solid ${acc.tier===t?TIER_COLORS[t]+"70":C.border}`,background:acc.tier===t?TIER_COLORS[t]+"22":"transparent",color:acc.tier===t?TIER_COLORS[t]:C.textDim,fontFamily:C.sans}}>T{t} {TIER_LABELS[t]}</button>)}
+            </div>
+            {ps.total>0&&(
+              <div style={{background:C.bg,borderRadius:8,padding:"10px 14px",marginBottom:14}}>
+                <div style={lbl}>Pipeline</div>
+                <div style={{display:"flex",gap:20,marginTop:8,flexWrap:"wrap"}}>
+                  <div style={{textAlign:"center"}}><div style={{color:C.textHi,fontWeight:700,fontSize:18}}>{ps.total}</div><div style={{color:C.textDim,fontSize:11}}>Total</div></div>
+                  <div style={{textAlign:"center"}}><div style={{color:C.blue,fontWeight:700,fontSize:18}}>{ps.active}</div><div style={{color:C.textDim,fontSize:11}}>Active</div></div>
+                  <div style={{textAlign:"center"}}><div style={{color:C.green,fontWeight:700,fontSize:18}}>{ps.won}</div><div style={{color:C.textDim,fontSize:11}}>Won</div></div>
+                  {ps.val>0&&<div style={{textAlign:"center"}}><div style={{color:C.gold,fontWeight:700,fontSize:18}}>{fmt$(ps.val)}</div><div style={{color:C.textDim,fontSize:11}}>In Proposals</div></div>}
+                </div>
+              </div>
+            )}
+            {acc.notes&&<><div style={divL}/><div style={lbl}>Notes</div><div style={{color:"#9ca3af",fontSize:13,marginTop:6,lineHeight:1.6}}>{acc.notes}</div></>}
+          </div>
+          <div style={card}>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:20}}>
+              <div>
+                <div style={{...lbl,color:C.green,marginBottom:10}}>✓ Strengths</div>
+                {acc.pros.length>0?acc.pros.map((p,i)=><div key={i} style={{fontSize:13,color:"#9ca3af",marginBottom:6,lineHeight:1.4}}>· {p}</div>):<div style={{color:C.border2,fontSize:13}}>None</div>}
+              </div>
+              <div>
+                <div style={{...lbl,color:C.red,marginBottom:10}}>✗ Risks</div>
+                {acc.cons.length>0?acc.cons.map((c,i)=><div key={i} style={{fontSize:13,color:"#9ca3af",marginBottom:6,lineHeight:1.4}}>· {c}</div>):<div style={{color:C.border2,fontSize:13}}>None</div>}
+              </div>
+            </div>
+          </div>
+        </div>
+        <div style={{display:"flex",borderBottom:`1px solid ${C.border}`,marginBottom:20}}>
+          <button style={tabS(accTab==="contacts")} onClick={()=>setAccTab("contacts")}>Contacts ({acc.contacts.length})</button>
+          <button style={tabS(accTab==="jobs")} onClick={()=>setAccTab("jobs")}>Jobs ({acc.jobs.length})</button>
+        </div>
+        {accTab==="contacts"&&(
+          <>
+            <div style={{display:"flex",justifyContent:"space-between",marginBottom:14}}>
+              <span style={{color:C.textDim,fontSize:13}}>Targeted contacts at {acc.name}</span>
+              <div style={{display:"flex",gap:8}}>
+                <button style={btn(null,C.red,"#3d1e1e")} onClick={()=>delAcc(acc.id)}>🗑 Delete Account</button>
+                <button style={btn(C.gold,"#0a0d13")} onClick={()=>{setForm({});setModal("addCon");}}>+ Add Contact</button>
+              </div>
+            </div>
+            {acc.contacts.length===0&&<div style={{...card,color:C.textDim,textAlign:"center",padding:40}}>No contacts yet.</div>}
+            {acc.contacts.map(con=>{
+              const la=con.activities[0];const ds=la?daysSince(la.date):null;const col=actColor(ds,YT,RT);
+              const hasOD=con.activities.some(a=>a.followUp&&isOverdue(a.followUp));
+              return (
+                <div key={con.id} style={{...card,display:"flex",alignItems:"center",justifyContent:"space-between",cursor:"pointer"}}
+                  onClick={()=>{setSC(con.id);setView("contact");}}
+                  onMouseEnter={e=>e.currentTarget.style.borderColor=C.border2} onMouseLeave={e=>e.currentTarget.style.borderColor=C.border}>
+                  <div style={{display:"flex",alignItems:"center",gap:14}}>
+                    <div style={{width:38,height:38,borderRadius:"50%",background:"#1a2035",display:"flex",alignItems:"center",justifyContent:"center",color:C.textDim,flexShrink:0}}>👤</div>
+                    <div>
+                      <div style={{fontWeight:700,color:C.textHi}}>{con.name}</div>
+                      <div style={{fontSize:12,color:C.textDim}}>{con.title}{con.email?` · ${con.email}`:""}</div>
+                    </div>
+                  </div>
+                  <div style={{display:"flex",alignItems:"center",gap:14}}>
+                    {hasOD&&tag(C.red,"Overdue Follow-Up")}
+                    <span style={{display:"flex",alignItems:"center",gap:5,fontSize:12,color:col}}>{dot(col)}{actLabel(ds)}</span>
+                    <span style={{color:C.textLo}}>›</span>
+                  </div>
+                </div>
+              );
+            })}
+          </>
+        )}
+        {accTab==="jobs"&&(
+          <>
+            <div style={{display:"flex",justifyContent:"space-between",marginBottom:14}}>
+              <span style={{color:C.textDim,fontSize:13}}>Jobs & opportunities at {acc.name}</span>
+              <button style={btn(C.gold,"#0a0d13")} onClick={()=>{setForm({status:"Active Pursuit"});setModal("addJob");}}>+ Add Job</button>
+            </div>
+            {acc.jobs.length===0&&<div style={{...card,color:C.textDim,textAlign:"center",padding:40}}>No jobs yet.</div>}
+            {acc.jobs.map(job=>{
+              const sc=STATUS_COLORS[job.status];const lp=job.proposals[job.proposals.length-1];
+              return (
+                <div key={job.id} style={{...card,cursor:"pointer"}}
+                  onClick={()=>{setSJ(job.id);setView("job");}}
+                  onMouseEnter={e=>e.currentTarget.style.borderColor=sc+"60"} onMouseLeave={e=>e.currentTarget.style.borderColor=C.border}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+                    <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
+                      {tag(sc,job.status)}
+                      <span style={{fontWeight:700,color:C.textHi}}>{job.name}</span>
+                      {job.location&&<span style={{fontSize:12,color:C.textDim}}>📍{job.location}</span>}
+                    </div>
+                    <div style={{display:"flex",alignItems:"center",gap:14}}>
+                      {(job.estimatedValue||(lp&&lp.amount))&&<span style={{color:C.gold,fontWeight:700}}>{job.estimatedValue||lp.amount}</span>}
+                      <span style={{color:C.textLo}}>›</span>
+                    </div>
+                  </div>
+                  {job.notes&&<div style={{fontSize:13,color:C.textLo,marginTop:8}}>{job.notes}</div>}
+                </div>
+              );
+            })}
+          </>
+        )}
+      </div>
+    );
+  };
+
+  // ── job view ──────────────────────────────────────────────────────────────
+  const JobView = () => {
+    const acc=gAcc();const job=gJob();if(!acc||!job) return null;
+    const sc=STATUS_COLORS[job.status];
+    const linked=acc.contacts.flatMap(con=>con.activities.filter(a=>a.jobId===job.id).map(a=>({...a,conName:con.name,conId:con.id}))).sort((a,b)=>new Date(b.date)-new Date(a.date));
+    return (
+      <div>
+        <Crumb items={[{label:"Accounts",onClick:()=>setView("dash")},{label:acc.name,onClick:()=>{setView("account");setAccTab("jobs");}},{label:job.name}]}/>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16,marginBottom:24}}>
+          <div style={card}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:14}}>
+              <div><div style={{fontFamily:C.serif,fontSize:20,color:C.textHi,marginBottom:6}}>{job.name}</div>{tag(sc,job.status)}</div>
+              <div style={{display:"flex",gap:8}}>
+                <button style={btn(null,C.blue,"#1e3a5a")} onClick={()=>{setForm({...job});setModal("editJob");}}>✎ Edit</button>
+                <button style={btn(null,C.red,"#3d1e1e")} onClick={()=>delJob(job.id)}>🗑</button>
+              </div>
+            </div>
+            {job.estimatedValue&&<><div style={lbl}>Estimated Value</div><div style={{color:C.gold,fontWeight:700,fontSize:22,marginTop:4,marginBottom:14}}>{job.estimatedValue}</div></>}
+            {job.location&&<><div style={lbl}>Location</div><div style={{color:C.text,marginTop:4,marginBottom:14}}>📍 {job.location}</div></>}
+            {job.dueDate&&<><div style={lbl}>Decision / Due Date</div><div style={{color:isOverdue(job.dueDate)&&!["Won","Lost"].includes(job.status)?C.red:C.text,marginTop:4,marginBottom:14}}>{job.dueDate}</div></>}
+            {job.notes&&<><div style={divL}/><div style={lbl}>Notes</div><div style={{color:"#9ca3af",fontSize:13,marginTop:6,lineHeight:1.6}}>{job.notes}</div></>}
+          </div>
+          <div style={card}>
+            <div style={lbl}>Update Status</div>
+            <div style={{display:"flex",flexWrap:"wrap",gap:8,marginTop:12}}>
+              {JOB_STATUSES.map(s=>{const c=STATUS_COLORS[s];const on=job.status===s;return <button key={s} onClick={()=>setJobStatus(s)} style={{borderRadius:8,padding:"6px 14px",fontSize:13,cursor:"pointer",fontWeight:on?700:400,border:`1px solid ${on?c+"80":C.border2}`,background:on?c+"20":"transparent",color:on?c:C.textLo,fontFamily:C.sans}}>{s}</button>;})}
+            </div>
+          </div>
+        </div>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+          <div style={{fontFamily:C.serif,fontSize:18,color:C.textHi}}>Proposals</div>
+          <button style={btn(C.gold,"#0a0d13")} onClick={()=>{setForm({submittedDate:new Date().toISOString().slice(0,10),outcome:"Pending"});setModal("addProp");}}>+ Add Proposal</button>
+        </div>
+        {job.proposals.length===0&&<div style={{...card,color:C.textDim,textAlign:"center",padding:32}}>No proposals yet.</div>}
+        {[...job.proposals].reverse().map((prop,i)=>{
+          const oc=prop.outcome==="Won"?C.green:prop.outcome==="Lost"?C.red:prop.outcome==="Pending"?C.gold:C.textLo;
+          return (
+            <div key={prop.id} style={{...card,marginBottom:12}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+                <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
+                  <span style={{fontWeight:700,color:C.textHi,fontSize:16}}>📄 {prop.amount||"Amount TBD"}</span>
+                  <span style={{color:C.textDim,fontSize:12}}>Submitted {prop.submittedDate}</span>
+                  {tag(oc,prop.outcome)}
+                  {i===job.proposals.length-1&&job.proposals.length>1&&tag(C.purple,"Latest")}
+                </div>
+                <div style={{display:"flex",gap:4}}>
+                  <button onClick={()=>{setForm({...prop,jobId:job.id});setModal("editProp");}} style={{background:"none",border:"none",color:C.textDim,cursor:"pointer",padding:"4px 6px"}}>✎</button>
+                  <button onClick={()=>delProp(job.id,prop.id)} style={{background:"none",border:"none",color:"#374151",cursor:"pointer",padding:"4px 6px"}}>🗑</button>
+                </div>
+              </div>
+              {prop.notes&&<div style={{marginTop:10,color:"#9ca3af",fontSize:13,lineHeight:1.6}}>{prop.notes}</div>}
+            </div>
+          );
+        })}
+        <div style={{marginTop:28}}>
+          <div style={{fontFamily:C.serif,fontSize:18,color:C.textHi,marginBottom:14}}>Linked Activities</div>
+          {linked.length===0&&<div style={{...card,color:C.textDim,textAlign:"center",padding:28,fontSize:13}}>No activities linked yet.</div>}
+          {linked.map(act=>(
+            <div key={act.id} style={{...card,marginBottom:12}}>
+              <div style={{display:"flex",gap:10,alignItems:"center"}}>{tag(C.blue,act.type)}<span style={{color:C.textDim,fontSize:12}}>{act.date}</span><span style={{color:C.textLo,fontSize:12}}>— {act.conName}</span></div>
+              {act.notes&&<div style={{marginTop:8,color:"#9ca3af",fontSize:13,lineHeight:1.6}}>{act.notes}</div>}
+              {act.followUp&&<div style={{marginTop:8,padding:"4px 10px",borderRadius:6,display:"inline-flex",gap:6,alignItems:"center",fontSize:12,background:isOverdue(act.followUp)?"#160a0a":"#0a140a",border:`1px solid ${isOverdue(act.followUp)?"#4a1e1e":"#1a3a1a"}`}}><span style={{color:isOverdue(act.followUp)?C.red:C.green}}>↻ {act.followUp}{isOverdue(act.followUp)?" — OVERDUE":""}</span></div>}
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  };
+
+  // ── contact view ──────────────────────────────────────────────────────────
+  const ContactView = () => {
+    const acc=gAcc();const con=gCon();if(!acc||!con) return null;
+    const ds=con.activities[0]?daysSince(con.activities[0].date):null;const col=actColor(ds,YT,RT);
+    return (
+      <div>
+        <Crumb items={[{label:"Accounts",onClick:()=>setView("dash")},{label:acc.name,onClick:()=>{setView("account");setAccTab("contacts");}},{label:con.name}]}/>
+        <div style={{display:"grid",gridTemplateColumns:"280px 1fr",gap:20}}>
+          <div>
+            <div style={card}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:14}}>
+                <div style={{width:46,height:46,borderRadius:"50%",background:"#1a2035",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20}}>👤</div>
+                <button style={btn(null,C.blue,"#1e3a5a")} onClick={()=>{setForm({...con});setModal("editCon");}}>✎ Edit</button>
+              </div>
+              <div style={{fontFamily:C.serif,fontSize:19,color:C.textHi,marginBottom:2}}>{con.name}</div>
+              <div style={{color:C.textLo,fontSize:13,marginBottom:14}}>{con.title}</div>
+              {(con.email||con.phone)&&<><div style={divL}/>{con.email&&<><div style={lbl}>Email</div><div style={{color:C.text,fontSize:13,marginTop:3,marginBottom:10}}>{con.email}</div></>}{con.phone&&<><div style={lbl}>Phone</div><div style={{color:C.text,fontSize:13,marginTop:3,marginBottom:10}}>{con.phone}</div></>}</>}
+              <div style={divL}/>
+              <div style={lbl}>Last Contact</div>
+              <div style={{color:col,fontSize:13,marginTop:3,marginBottom:10,display:"flex",alignItems:"center",gap:6}}>{dot(col)}{actLabel(ds)}</div>
+              {con.notes&&<><div style={divL}/><div style={lbl}>Notes</div><div style={{color:"#9ca3af",fontSize:13,marginTop:6,lineHeight:1.6}}>{con.notes}</div></>}
+              {con.activities.length>0&&<><div style={divL}/><div style={lbl}>Activity Breakdown</div><div style={{marginTop:8}}>{ACTIVITY_TYPES.filter(t=>con.activities.some(a=>a.type===t)).map(t=><div key={t} style={{display:"flex",justifyContent:"space-between",fontSize:12,color:C.textLo,marginBottom:5}}><span>{t}</span><span style={{color:C.text,fontWeight:600}}>{con.activities.filter(a=>a.type===t).length}</span></div>)}</div></>}
+            </div>
+            <button style={{...btn(null,C.red,"#3d1e1e"),width:"100%",justifyContent:"center"}} onClick={()=>delCon(con.id)}>🗑 Remove Contact</button>
+          </div>
+          <div>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+              <div style={{fontFamily:C.serif,fontSize:18,color:C.textHi}}>Activity Log</div>
+              <button style={btn(C.gold,"#0a0d13")} onClick={()=>{setForm({type:"Email",date:new Date().toISOString().slice(0,10)});setModal("addAct");}}>+ Log Activity</button>
+            </div>
+            {con.activities.length===0&&<div style={{...card,color:C.textDim,textAlign:"center",padding:40}}>No activities yet.</div>}
+            {con.activities.map(act=>{
+              const lj=acc.jobs.find(j=>j.id===act.jobId);
+              return (
+                <div key={act.id} style={{...card,marginBottom:12}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                    <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
+                      {tag(C.blue,act.type)}
+                      <span style={{color:C.textDim,fontSize:12}}>{act.date}</span>
+                      {lj&&<button onClick={e=>{e.stopPropagation();setSJ(lj.id);setView("job");}} style={{...pill(STATUS_COLORS[lj.status]),cursor:"pointer",background:"transparent",border:`1px solid ${STATUS_COLORS[lj.status]}50`,fontFamily:C.sans}}>💼 {lj.name}</button>}
+                    </div>
+                    <div style={{display:"flex",gap:4}}>
+                      <button onClick={()=>{setForm({...act,followUp:act.followUp||""});setModal("editAct");}} style={{background:"none",border:"none",color:C.textDim,cursor:"pointer",padding:"4px 6px"}}>✎</button>
+                      <button onClick={()=>delAct(act.id)} style={{background:"none",border:"none",color:"#374151",cursor:"pointer",padding:"4px 6px"}}>🗑</button>
+                    </div>
+                  </div>
+                  {act.notes&&<div style={{marginTop:10,color:"#9ca3af",fontSize:13,lineHeight:1.6}}>{act.notes}</div>}
+                  {act.followUp&&<div style={{marginTop:8,padding:"4px 10px",borderRadius:6,display:"inline-flex",gap:6,alignItems:"center",fontSize:12,background:isOverdue(act.followUp)?"#160a0a":"#0a140a",border:`1px solid ${isOverdue(act.followUp)?"#4a1e1e":"#1a3a1a"}`}}><span style={{color:isOverdue(act.followUp)?C.red:C.green}}>↻ Follow-up: {act.followUp}{isOverdue(act.followUp)?" — OVERDUE":""}</span></div>}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  // ── root ──────────────────────────────────────────────────────────────────
+  return (
+    <div style={{background:C.bg,minHeight:"100vh",color:C.text,fontFamily:C.sans,fontSize:14}}>
+      <div style={{background:C.surface,borderBottom:`1px solid ${C.border}`,padding:"0 32px",display:"flex",alignItems:"center",justifyContent:"space-between",height:58}}>
+        <div style={{fontFamily:C.serif,fontSize:22,color:C.textHi,letterSpacing:"-0.02em",cursor:"pointer"}} onClick={()=>setView("dash")}>
+          Sales<span style={{color:C.gold}}>OS</span>
+        </div>
+        <div style={{display:"flex",alignItems:"center",gap:12}}>
+          {alerts.length>0&&<span style={{...pill(C.gold),display:"inline-flex",alignItems:"center",gap:5}}>⚠ {alerts.length} overdue</span>}
+          <span style={{color:C.textDim,fontSize:13}}>{userName}</span>
+          <button style={btn(null,C.textLo,C.border2)} onClick={()=>{setForm({});setModal("settings");}}>⚙</button>
+        </div>
+      </div>
+      <div style={{maxWidth:1200,margin:"0 auto",padding:"32px 24px"}}>
+        {view==="dash"    &&<DashView/>}
+        {view==="account" &&<AccountView/>}
+        {view==="job"     &&<JobView/>}
+        {view==="contact" &&<ContactView/>}
+      </div>
+      <Modals/>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>
