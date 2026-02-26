@@ -1452,8 +1452,7 @@ function App() {
           </div>
         </div>
 
-        {dashTab==="pyramid" ? (
-          tierGroups.map(({tier,accs})=>(
+        {dashTab==="pyramid" && tierGroups.map(({tier,accs})=>(
             <div key={tier} style={{marginBottom:32}}>
                 <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14}}>
                   {dot(TIER_COLORS[tier])}
@@ -1526,9 +1525,9 @@ function App() {
                   {accs.length===0&&<div style={{color:C.textDim,fontSize:13,padding:"12px 0",fontStyle:"italic"}}>No accounts in this tier yet.</div>}
                 </div>
               </div>
-          ))
-        ) : (
-          (()=>{
+          ))}
+
+        {dashTab==="list" && (()=>{
             const sorted = [...filteredAccs].sort((a,b)=>{
               if(listSort==="tier") return a.tier-b.tier||a.name.localeCompare(b.name);
               if(listSort==="name") return a.name.localeCompare(b.name);
@@ -1576,7 +1575,7 @@ function App() {
               </div>
             );
           })
-        )}
+        )()}
       </div>
     );
   };
