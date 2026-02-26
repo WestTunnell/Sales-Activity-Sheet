@@ -409,8 +409,7 @@ function App() {
   const [mktF,    setMktF]    = useState([]);
   const [modal,   setModal]   = useState(null);
   const [form,    setForm]    = useState({});
-  const [dragId,  setDragId]  = useState(null);
-  const [dragOver,setDragOver]= useState(null);
+
   const [iRows,   setIRows]   = useState([]);
   const [iHdrs,   setIHdrs]   = useState([]);
   const [iMap,    setIMap]    = useState({});
@@ -423,6 +422,7 @@ function App() {
   const [mergeConDecs, setMergeConDecs]  = useState({});
   const [searchQ,     setSearchQ]        = useState("");
   const [listSort,    setListSort]       = useState("tier");
+  const [jobSort,     setJobSort]         = useState("due");
   const [brief,       setBrief]          = useState(null);
   const [briefLoading,setBriefLoading]   = useState(false);
   const fileRef = useRef();
@@ -468,16 +468,24 @@ function App() {
   const filteredAccs = mktF.length===0 ? data.accounts : data.accounts.filter(a=>mktF.every(m=>(a.markets||[]).includes(m)));
 
   const allJobs = data.accounts.flatMap(a=>a.jobs);
-  const decidedJobs = allJobs.filter(j=>j.status==="Won"||j.status==="Lost");
-  const winRate = decidedJobs.length>0 ? Math.round(decidedJobs.filter(j=>j.status==="Won").length/decidedJobs.length*100) : null;
   const jVal = j => { const lp=j.proposals[j.proposals.length-1]; const v=lp?parseCur(lp.amount):parseCur(j.estimatedValue); return isNaN(v)?0:v; };
-  const wonBidVal      = allJobs.filter(j=>j.status==="Won").reduce((s,j)=>s+jVal(j),0);
-  const lostBidVal     = allJobs.filter(j=>j.status==="Lost").reduce((s,j)=>s+jVal(j),0);
-  const activeBidVal   = allJobs.filter(j=>j.status==="Active Pursuit").reduce((s,j)=>s+jVal(j),0);
-  const pendingBidVal  = allJobs.filter(j=>j.status==="Proposal Pending").reduce((s,j)=>s+jVal(j),0);
-  const budgetBidVal   = allJobs.filter(j=>j.status==="Budget / Budgetary Only").reduce((s,j)=>s+jVal(j),0);
-  const holdBidVal     = allJobs.filter(j=>j.status==="On Hold").reduce((s,j)=>s+jVal(j),0);
-  const totalBidVal    = allJobs.reduce((s,j)=>s+jVal(j),0);
+  // 12-month rolling window for KPIs
+  const now12 = new Date(); now12.setFullYear(now12.getFullYear()-1);
+  const inWindow = j => {
+    if(!["Won","Lost"].includes(j.status)) return true; // active jobs always included
+    const ref = j.dueDate ? new Date(j.dueDate) : (j.proposals.length>0 ? new Date(j.proposals[j.proposals.length-1].submittedDate||"") : null);
+    return ref && ref >= now12;
+  };
+  const windowJobs  = allJobs.filter(inWindow);
+  const decidedJobs = windowJobs.filter(j=>j.status==="Won"||j.status==="Lost");
+  const winRate     = decidedJobs.length>0 ? Math.round(decidedJobs.filter(j=>j.status==="Won").length/decidedJobs.length*100) : null;
+  const wonBidVal     = windowJobs.filter(j=>j.status==="Won").reduce((s,j)=>s+jVal(j),0);
+  const lostBidVal    = windowJobs.filter(j=>j.status==="Lost").reduce((s,j)=>s+jVal(j),0);
+  const activeBidVal  = windowJobs.filter(j=>j.status==="Active Pursuit").reduce((s,j)=>s+jVal(j),0);
+  const pendingBidVal = windowJobs.filter(j=>j.status==="Proposal Pending").reduce((s,j)=>s+jVal(j),0);
+  const budgetBidVal  = windowJobs.filter(j=>j.status==="Budget / Budgetary Only").reduce((s,j)=>s+jVal(j),0);
+  const holdBidVal    = windowJobs.filter(j=>j.status==="On Hold").reduce((s,j)=>s+jVal(j),0);
+  const totalBidVal   = windowJobs.reduce((s,j)=>s+jVal(j),0);
 
   // -- activity KPIs ----------------------------------------------
   const allActs = data.accounts.flatMap(a=>a.contacts.flatMap(c=>c.activities));
@@ -1419,7 +1427,9 @@ function App() {
 
         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",borderBottom:`1px solid ${C.border}`,marginBottom:28}}>
           <div style={{display:"flex"}}>
-            {["pyramid","list"].map(t=><button key={t} style={tabS(dashTab===t)} onClick={()=>setDashTab(t)}>{t==="pyramid"?"Tier Pyramid":"Account List"}</button>)}
+            {[["pyramid","Tier Pyramid"],["list","Account List"],["jobs","Job List"]].map(([t,l])=>(
+              <button key={t} style={tabS(dashTab===t)} onClick={()=>setDashTab(t)}>{l}</button>
+            ))}
           </div>
           <div style={{display:"flex",alignItems:"center",gap:8}}>
             {dashTab==="list"&&(
@@ -1430,39 +1440,38 @@ function App() {
                 ))}
               </div>
             )}
-            <Legend/>
+            {dashTab==="jobs"&&(
+              <div style={{display:"flex",alignItems:"center",gap:6,marginRight:8}}>
+                <span style={{fontSize:11,color:C.textDim,textTransform:"uppercase",letterSpacing:"0.07em"}}>Sort:</span>
+                {[["due","Due Date"],["value","Value"],["status","Status"],["recent","Activity"]].map(([k,l])=>(
+                  <button key={k} onClick={()=>setJobSort(k)} style={{borderRadius:6,padding:"3px 10px",fontSize:12,cursor:"pointer",fontWeight:jobSort===k?700:400,border:`1px solid ${jobSort===k?C.gold+"80":C.border2}`,background:jobSort===k?C.gold+"15":"transparent",color:jobSort===k?C.gold:C.textDim,fontFamily:C.sans}}>{l}</button>
+                ))}
+              </div>
+            )}
+            {dashTab!=="jobs"&&<Legend/>}
           </div>
         </div>
 
         {dashTab==="pyramid" ? (
-          tierGroups.map(({tier,accs})=>{
-            const isOv = dragOver===tier && dragId && !accs.find(a=>a.id===dragId);
-            return (
-              <div key={tier} style={{marginBottom:32}}
-                onDragOver={e=>{e.preventDefault();setDragOver(tier);}}
-                onDragLeave={e=>{if(!e.currentTarget.contains(e.relatedTarget))setDragOver(null);}}
-                onDrop={e=>{e.preventDefault();if(dragId){upd(d=>{const a=d.accounts.find(x=>x.id===dragId);if(a)a.tier=tier;return d;});setDragId(null);setDragOver(null);}}}>
+          tierGroups.map(({tier,accs})=>(
+            <div key={tier} style={{marginBottom:32}}>
                 <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14}}>
                   {dot(TIER_COLORS[tier])}
                   <span style={lbl}>Tier {tier} -- {TIER_LABELS[tier]}</span>
                   {tag(TIER_COLORS[tier],accs.length)}
-                  {dragId&&<span style={{fontSize:11,color:TIER_COLORS[tier],opacity:.7}}>drop here</span>}
                 </div>
-                <div style={{display:"grid",gridTemplateColumns:tier===1?"1fr 1fr":tier===2?"1fr 1fr 1fr":"1fr 1fr 1fr 1fr",gap:14,paddingLeft:tier===1?"13%":tier===2?"6%":0,paddingRight:tier===1?"13%":tier===2?"6%":0,minHeight:isOv?80:0,borderRadius:12,background:isOv?TIER_COLORS[tier]+"18":"transparent",border:`2px dashed ${isOv?TIER_COLORS[tier]+"50":"transparent"}`,padding:isOv?10:0,transition:"all .15s"}}>
+                <div style={{display:"grid",gridTemplateColumns:tier===1?"1fr 1fr":tier===2?"1fr 1fr 1fr":"1fr 1fr 1fr 1fr",gap:14,paddingLeft:tier===1?"13%":tier===2?"6%":0,paddingRight:tier===1?"13%":tier===2?"6%":0}}>
                   {accs.map(acc=>{
                     const lastAct=acc.contacts.flatMap(c=>c.activities).sort((a,b)=>new Date(b.date)-new Date(a.date))[0];
                     const ds=lastAct?daysSince(lastAct.date):null;
                     const col=actColor(ds,YT,RT);
                     const ps=pipeSummary(acc);
                     const tc=TIER_COLORS[acc.tier];
-                    const isDragging=dragId===acc.id;
                     return (
-                      <div key={acc.id} draggable
-                        onDragStart={e=>{setDragId(acc.id);e.dataTransfer.effectAllowed="move";}}
-                        onDragEnd={()=>{setDragId(null);setDragOver(null);}}
-                        onClick={()=>{if(!dragId){setSA(acc.id);setView("account");setAccTab("contacts");}}}
-                        style={{...card,cursor:isDragging?"grabbing":"grab",padding:16,marginBottom:0,opacity:isDragging?0.4:1,userSelect:"none"}}
-                        onMouseEnter={e=>{if(!isDragging)e.currentTarget.style.borderColor=tc+"70";}}
+                      <div key={acc.id}
+                        onClick={()=>{setSA(acc.id);setView("account");setAccTab("contacts");}}
+                        style={{...card,cursor:"pointer",padding:16,marginBottom:0}}
+                        onMouseEnter={e=>e.currentTarget.style.borderColor=tc+"70"}
                         onMouseLeave={e=>e.currentTarget.style.borderColor=C.border}>
                         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8}}>
                           <div style={{fontWeight:700,color:C.textHi,fontSize:14,lineHeight:1.3,flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",paddingRight:6}}>{acc.name}</div>
@@ -1514,11 +1523,10 @@ function App() {
                       </div>
                     );
                   })}
-                  {accs.length===0&&<div style={{color:C.border2,fontSize:13,padding:"12px 0",fontStyle:"italic"}}>Drop an account here for Tier {tier}.</div>}
+                  {accs.length===0&&<div style={{color:C.textDim,fontSize:13,padding:"12px 0",fontStyle:"italic"}}>No accounts in this tier yet.</div>}
                 </div>
               </div>
-            );
-          })
+          ))
         ) : (
           (()=>{
             const sorted = [...filteredAccs].sort((a,b)=>{
@@ -1691,6 +1699,99 @@ function App() {
             })}
           </>
         )}
+
+        {/* -- Job List tab -- */}
+        {dashTab==="jobs"&&(()=>{
+          const STATUS_ORDER = {"Active Pursuit":0,"Proposal Pending":1,"Budget / Budgetary Only":2,"On Hold":3,"Won":4,"Lost":5};
+          // Build flat list with account context, apply 12-month window
+          const flatJobs = data.accounts.flatMap(acc=>
+            acc.jobs.filter(inWindow).map(j=>{
+              const linkedActs = acc.contacts.flatMap(c=>c.activities.filter(a=>a.jobId===j.id)).sort((a,b)=>new Date(b.date)-new Date(a.date));
+              const lastAct = linkedActs[0] || acc.contacts.flatMap(c=>c.activities).sort((a,b)=>new Date(b.date)-new Date(a.date))[0];
+              const linkedCons = acc.contacts.filter(c=>c.activities.some(a=>a.jobId===j.id));
+              return {...j, accId:acc.id, accName:acc.name, accTier:acc.tier, lastAct, linkedCons};
+            })
+          );
+          const sorted = [...flatJobs].sort((a,b)=>{
+            if(jobSort==="due"){
+              const da=a.dueDate?new Date(a.dueDate):new Date("2099-01-01");
+              const db=b.dueDate?new Date(b.dueDate):new Date("2099-01-01");
+              return da-db;
+            }
+            if(jobSort==="value") return jVal(b)-jVal(a);
+            if(jobSort==="status") return (STATUS_ORDER[a.status]||99)-(STATUS_ORDER[b.status]||99);
+            if(jobSort==="recent"){
+              const da=a.lastAct?new Date(a.lastAct.date):new Date(0);
+              const db=b.lastAct?new Date(b.lastAct.date):new Date(0);
+              return db-da;
+            }
+            return 0;
+          });
+          if(sorted.length===0) return (
+            <div style={{...card,color:C.textDim,textAlign:"center",padding:48,fontSize:13}}>No jobs in the last 12 months.</div>
+          );
+          return (
+            <div>
+              <div style={{fontSize:12,color:C.textDim,marginBottom:14}}>{sorted.length} jobs in the last 12 months</div>
+              {sorted.map(j=>{
+                const sc = STATUS_COLORS[j.status]||C.textDim;
+                const val = jVal(j);
+                const today = new Date();
+                const daysToDD = j.dueDate ? Math.ceil((new Date(j.dueDate)-today)/86400000) : null;
+                const lastActDs = j.lastAct ? daysSince(j.lastAct.date) : null;
+                const actCol = actColor(lastActDs,YT,RT);
+                return (
+                  <div key={j.id+j.accId} style={{...card,marginBottom:10,cursor:"pointer",padding:"14px 18px"}}
+                    onClick={()=>{setSA(j.accId);setSJ(j.id);setView("job");}}
+                    onMouseEnter={e=>e.currentTarget.style.borderColor=sc+"60"}
+                    onMouseLeave={e=>e.currentTarget.style.borderColor=C.border}>
+                    <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:12}}>
+                      {/* Left: job name + account */}
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4,flexWrap:"wrap"}}>
+                          <span style={{fontWeight:700,color:C.textHi,fontSize:15}}>{j.name}</span>
+                          {tag(sc,j.status)}
+                          {tag(TIER_COLORS[j.accTier],"T"+j.accTier)}
+                        </div>
+                        <div style={{fontSize:13,color:C.textLo,marginBottom:j.location?4:0}}>{j.accName}</div>
+                        {j.location&&<div style={{fontSize:12,color:C.textDim}}>{j.location}</div>}
+                      </div>
+                      {/* Right: value + due date */}
+                      <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:4,flexShrink:0}}>
+                        {val>0&&<span style={{fontWeight:700,color:C.gold,fontSize:15}}>{fmt$(val)}</span>}
+                        {j.dueDate&&(()=>{
+                          if(["Won","Lost"].includes(j.status)) return <span style={{fontSize:12,color:C.textDim}}>{j.dueDate}</span>;
+                          if(daysToDD===null) return null;
+                          if(daysToDD<0) return <span style={{...pill(C.red),fontSize:11}}>OVERDUE {Math.abs(daysToDD)}d</span>;
+                          if(daysToDD<=7) return <span style={{...pill(C.red),fontSize:11}}>Due in {daysToDD}d</span>;
+                          if(daysToDD<=21) return <span style={{...pill(C.amber),fontSize:11}}>Due in {daysToDD}d</span>;
+                          return <span style={{fontSize:12,color:C.textDim}}>Due {j.dueDate}</span>;
+                        })()}
+                      </div>
+                    </div>
+                    {/* Bottom row: activity + contacts */}
+                    <div style={{display:"flex",alignItems:"center",gap:16,marginTop:10,flexWrap:"wrap"}}>
+                      <span style={{display:"flex",alignItems:"center",gap:5,fontSize:12,color:actCol}}>
+                        {dot(actCol)}{j.lastAct ? "Activity "+actLabel(lastActDs) : "No activity logged"}
+                      </span>
+                      {j.linkedCons.length>0&&(
+                        <div style={{display:"flex",alignItems:"center",gap:5}}>
+                          {j.linkedCons.slice(0,3).map(c=>(
+                            <div key={c.id} style={{width:24,height:24,borderRadius:"50%",background:"#e8e4f0",display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,color:C.purple,fontWeight:700,title:c.name}}>
+                              {c.name.trim().split(" ").map(w=>w[0]).slice(0,2).join("").toUpperCase()}
+                            </div>
+                          ))}
+                          {j.linkedCons.length>3&&<span style={{fontSize:11,color:C.textDim}}>+{j.linkedCons.length-3}</span>}
+                          <span style={{fontSize:11,color:C.textDim,marginLeft:2}}>{j.linkedCons.map(c=>c.name).join(", ")}</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          );
+        })()}
       </div>
     );
   };
