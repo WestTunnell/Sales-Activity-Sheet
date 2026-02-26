@@ -27,6 +27,21 @@ select option{background:#ffffff;}
 <script type="text/babel">
 const {useState,useEffect,useRef} = React;
 
+class ErrorBoundary extends React.Component {
+  constructor(props) { super(props); this.state = {error: null}; }
+  componentDidCatch(err, info) { this.setState({error: err.message + '\n' + (info&&info.componentStack||'')}); }
+  static getDerivedStateFromError(err) { return {error: err.message}; }
+  render() {
+    if(this.state.error) return (
+      <div style={{background:'#1a0000',color:'#ff6b6b',padding:32,fontFamily:'monospace',whiteSpace:'pre-wrap',fontSize:13,minHeight:'100vh'}}>
+        {'RUNTIME ERROR - PLEASE SHARE THIS WITH CLAUDE:\n\n' + this.state.error}
+      </div>
+    );
+    return this.props.children;
+  }
+}
+
+
 const STORAGE_KEY = "sales_os_v5";
 const DEFAULT_MARKETS = ["General Contractor","Construction Manager","Owner / Developer","Home Builder","Subcontractor","Design-Build","Healthcare","Industrial","Government / Public","Mixed-Use / Multifamily"];
 const JOB_STATUSES   = ["Active Pursuit","Proposal Pending","Won","Lost","On Hold","Budget / Budgetary Only"];
@@ -1939,7 +1954,7 @@ function App() {
   );
 }
 
-ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+ReactDOM.createRoot(document.getElementById("root")).render(<ErrorBoundary><App/></ErrorBoundary>);
 </script>
 </body>
 </html>
