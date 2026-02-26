@@ -1576,6 +1576,104 @@ function App() {
             );
           })
         )()}
+
+        {/* -- Job List tab -- */}
+        {dashTab==="jobs"&&(()=>{
+          const STATUS_ORDER = {"Active Pursuit":0,"Proposal Pending":1,"Budget / Budgetary Only":2,"On Hold":3,"Won":4,"Lost":5};
+          const flatJobs = data.accounts.flatMap(acc=>
+            acc.jobs.filter(inWindow).map(j=>{
+              const linkedActs = acc.contacts.flatMap(c=>c.activities.filter(a=>a.jobId===j.id)).sort((a,b)=>new Date(b.date)-new Date(a.date));
+              const linkedCons = acc.contacts.filter(c=>c.activities.some(a=>a.jobId===j.id));
+              return {...j, accId:acc.id, accName:acc.name, accTier:acc.tier, linkedAct:linkedActs[0]||null, linkedCons};
+            })
+          );
+          const sorted = [...flatJobs].sort((a,b)=>{
+            if(jobSort==="due"){
+              const hasDa = !!a.dueDate, hasDd = !!b.dueDate;
+              if(!hasDa&&!hasDd) return a.name.localeCompare(b.name);
+              if(!hasDa) return 1;
+              if(!hasDd) return -1;
+              return new Date(a.dueDate)-new Date(b.dueDate);
+            }
+            if(jobSort==="value") return jVal(b)-jVal(a);
+            if(jobSort==="status") return (STATUS_ORDER[a.status]||99)-(STATUS_ORDER[b.status]||99)||a.name.localeCompare(b.name);
+            if(jobSort==="recent"){
+              const da=a.linkedAct?new Date(a.linkedAct.date):new Date(0);
+              const db=b.linkedAct?new Date(b.linkedAct.date):new Date(0);
+              return db-da;
+            }
+            return 0;
+          });
+          if(sorted.length===0) return (
+            <div style={{...card,color:C.textDim,textAlign:"center",padding:48,fontSize:13}}>No jobs in the last 12 months.</div>
+          );
+          const withDate = sorted.filter(j=>j.dueDate).length;
+          const withoutDate = sorted.length - withDate;
+          return (
+            <div>
+              <div style={{fontSize:12,color:C.textDim,marginBottom:14}}>
+                {sorted.length} jobs in the last 12 months
+                {withoutDate>0&&jobSort==="due"&&<span style={{color:C.amber,marginLeft:8}}>{withoutDate} missing due date</span>}
+              </div>
+              {sorted.map(j=>{
+                const sc = STATUS_COLORS[j.status]||C.textDim;
+                const val = jVal(j);
+                const today = new Date();
+                const daysToDD = j.dueDate ? Math.ceil((new Date(j.dueDate)-today)/86400000) : null;
+                const actDs = j.linkedAct ? daysSince(j.linkedAct.date) : null;
+                const actCol = actColor(actDs,YT,RT);
+                const lp = j.proposals.length>0 ? j.proposals[j.proposals.length-1] : null;
+                return (
+                  <div key={j.id+j.accId} style={{...card,marginBottom:8,cursor:"pointer",padding:"13px 18px"}}
+                    onClick={()=>{setSA(j.accId);setSJ(j.id);setView("job");}}
+                    onMouseEnter={e=>e.currentTarget.style.borderColor=sc+"80"}
+                    onMouseLeave={e=>e.currentTarget.style.borderColor=C.border}>
+                    <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:16}}>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:3,flexWrap:"wrap"}}>
+                          <span style={{fontWeight:700,color:C.textHi,fontSize:15}}>{j.name}</span>
+                          {tag(sc,j.status)}
+                        </div>
+                        <div style={{display:"flex",alignItems:"center",gap:8,fontSize:12,color:C.textDim,flexWrap:"wrap"}}>
+                          <span style={{color:C.textLo}}>{j.accName}</span>
+                          {j.location&&<><span style={{color:C.border2}}>|</span><span>{j.location}</span></>}
+                          {tag(TIER_COLORS[j.accTier],"T"+j.accTier)}
+                        </div>
+                      </div>
+                      <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:4,flexShrink:0}}>
+                        {val>0&&<span style={{fontWeight:700,color:C.gold,fontSize:15}}>{fmt$(val)}</span>}
+                        {!j.dueDate&&<span style={{fontSize:11,color:C.textDim,fontStyle:"italic"}}>No due date</span>}
+                        {j.dueDate&&(()=>{
+                          if(["Won","Lost"].includes(j.status)) return <span style={{fontSize:12,color:C.textDim}}>{j.dueDate}</span>;
+                          if(daysToDD<0) return <span style={{...pill(C.red),fontSize:11}}>OVERDUE {Math.abs(daysToDD)}d</span>;
+                          if(daysToDD<=7) return <span style={{...pill(C.red),fontSize:11}}>Due in {daysToDD}d</span>;
+                          if(daysToDD<=21) return <span style={{...pill(C.amber),fontSize:11}}>Due in {daysToDD}d</span>;
+                          return <span style={{fontSize:12,color:C.textDim}}>Due {j.dueDate}</span>;
+                        })()}
+                      </div>
+                    </div>
+                    <div style={{display:"flex",alignItems:"center",gap:14,marginTop:9,paddingTop:9,borderTop:`1px solid ${C.border}`,flexWrap:"wrap"}}>
+                      <span style={{display:"flex",alignItems:"center",gap:5,fontSize:12,color:actCol}}>
+                        {dot(actCol)}{j.linkedAct ? "Last activity "+actLabel(actDs) : "No linked activity"}
+                      </span>
+                      {lp&&<span style={{fontSize:12,color:C.textDim}}>Latest proposal: <span style={{color:lp.outcome==="Won"?C.green:lp.outcome==="Lost"?C.red:C.gold,fontWeight:600}}>{lp.outcome}</span>{lp.amount?" -- "+lp.amount:""}</span>}
+                      {j.linkedCons.length>0&&(
+                        <div style={{display:"flex",alignItems:"center",gap:4,marginLeft:"auto"}}>
+                          {j.linkedCons.slice(0,4).map(c=>(
+                            <div key={c.id} title={c.name} style={{width:22,height:22,borderRadius:"50%",background:"#e8e4f0",display:"flex",alignItems:"center",justifyContent:"center",fontSize:8,color:C.purple,fontWeight:700}}>
+                              {c.name.trim().split(" ").map(w=>w[0]).slice(0,2).join("").toUpperCase()}
+                            </div>
+                          ))}
+                          {j.linkedCons.length>4&&<span style={{fontSize:11,color:C.textDim}}>+{j.linkedCons.length-4}</span>}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          );
+        })()}
       </div>
     );
   };
@@ -1699,106 +1797,7 @@ function App() {
           </>
         )}
 
-        {/* -- Job List tab -- */}
-        {dashTab==="jobs"&&(()=>{
-          const STATUS_ORDER = {"Active Pursuit":0,"Proposal Pending":1,"Budget / Budgetary Only":2,"On Hold":3,"Won":4,"Lost":5};
-          const flatJobs = data.accounts.flatMap(acc=>
-            acc.jobs.filter(inWindow).map(j=>{
-              const linkedActs = acc.contacts.flatMap(c=>c.activities.filter(a=>a.jobId===j.id)).sort((a,b)=>new Date(b.date)-new Date(a.date));
-              const linkedCons = acc.contacts.filter(c=>c.activities.some(a=>a.jobId===j.id));
-              return {...j, accId:acc.id, accName:acc.name, accTier:acc.tier, linkedAct:linkedActs[0]||null, linkedCons};
-            })
-          );
-          const sorted = [...flatJobs].sort((a,b)=>{
-            if(jobSort==="due"){
-              const hasDa = !!a.dueDate, hasDd = !!b.dueDate;
-              if(!hasDa&&!hasDd) return a.name.localeCompare(b.name);
-              if(!hasDa) return 1;
-              if(!hasDd) return -1;
-              return new Date(a.dueDate)-new Date(b.dueDate);
-            }
-            if(jobSort==="value") return jVal(b)-jVal(a);
-            if(jobSort==="status") return (STATUS_ORDER[a.status]||99)-(STATUS_ORDER[b.status]||99)||a.name.localeCompare(b.name);
-            if(jobSort==="recent"){
-              const da=a.linkedAct?new Date(a.linkedAct.date):new Date(0);
-              const db=b.linkedAct?new Date(b.linkedAct.date):new Date(0);
-              return db-da;
-            }
-            return 0;
-          });
-          if(sorted.length===0) return (
-            <div style={{...card,color:C.textDim,textAlign:"center",padding:48,fontSize:13}}>No jobs in the last 12 months.</div>
-          );
-          const withDate = sorted.filter(j=>j.dueDate).length;
-          const withoutDate = sorted.length - withDate;
-          return (
-            <div>
-              <div style={{fontSize:12,color:C.textDim,marginBottom:14}}>
-                {sorted.length} jobs in the last 12 months
-                {withoutDate>0&&jobSort==="due"&&<span style={{color:C.amber,marginLeft:8}}>{withoutDate} missing due date</span>}
-              </div>
-              {sorted.map(j=>{
-                const sc = STATUS_COLORS[j.status]||C.textDim;
-                const val = jVal(j);
-                const today = new Date();
-                const daysToDD = j.dueDate ? Math.ceil((new Date(j.dueDate)-today)/86400000) : null;
-                const actDs = j.linkedAct ? daysSince(j.linkedAct.date) : null;
-                const actCol = actColor(actDs,YT,RT);
-                const lp = j.proposals.length>0 ? j.proposals[j.proposals.length-1] : null;
-                return (
-                  <div key={j.id+j.accId} style={{...card,marginBottom:8,cursor:"pointer",padding:"13px 18px"}}
-                    onClick={()=>{setSA(j.accId);setSJ(j.id);setView("job");}}
-                    onMouseEnter={e=>e.currentTarget.style.borderColor=sc+"80"}
-                    onMouseLeave={e=>e.currentTarget.style.borderColor=C.border}>
-                    <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:16}}>
-                      <div style={{flex:1,minWidth:0}}>
-                        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:3,flexWrap:"wrap"}}>
-                          <span style={{fontWeight:700,color:C.textHi,fontSize:15}}>{j.name}</span>
-                          {tag(sc,j.status)}
-                        </div>
-                        <div style={{display:"flex",alignItems:"center",gap:8,fontSize:12,color:C.textDim,flexWrap:"wrap"}}>
-                          <span style={{color:C.textLo}}>{j.accName}</span>
-                          {j.location&&<><span style={{color:C.border2}}>|</span><span>{j.location}</span></>}
-                          {tag(TIER_COLORS[j.accTier],"T"+j.accTier)}
-                        </div>
-                      </div>
-                      <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:4,flexShrink:0}}>
-                        {val>0&&<span style={{fontWeight:700,color:C.gold,fontSize:15}}>{fmt$(val)}</span>}
-                        {!j.dueDate&&<span style={{fontSize:11,color:C.textDim,fontStyle:"italic"}}>No due date</span>}
-                        {j.dueDate&&(()=>{
-                          if(["Won","Lost"].includes(j.status)) return <span style={{fontSize:12,color:C.textDim}}>{j.dueDate}</span>;
-                          if(daysToDD<0) return <span style={{...pill(C.red),fontSize:11}}>OVERDUE {Math.abs(daysToDD)}d</span>;
-                          if(daysToDD<=7) return <span style={{...pill(C.red),fontSize:11}}>Due in {daysToDD}d</span>;
-                          if(daysToDD<=21) return <span style={{...pill(C.amber),fontSize:11}}>Due in {daysToDD}d</span>;
-                          return <span style={{fontSize:12,color:C.textDim}}>Due {j.dueDate}</span>;
-                        })()}
-                      </div>
-                    </div>
-                    <div style={{display:"flex",alignItems:"center",gap:14,marginTop:9,paddingTop:9,borderTop:`1px solid ${C.border}`,flexWrap:"wrap"}}>
-                      <span style={{display:"flex",alignItems:"center",gap:5,fontSize:12,color:actCol}}>
-                        {dot(actCol)}{j.linkedAct ? "Last activity "+actLabel(actDs) : "No linked activity"}
-                      </span>
-                      {lp&&<span style={{fontSize:12,color:C.textDim}}>Latest proposal: <span style={{color:lp.outcome==="Won"?C.green:lp.outcome==="Lost"?C.red:C.gold,fontWeight:600}}>{lp.outcome}</span>{lp.amount?" -- "+lp.amount:""}</span>}
-                      {j.linkedCons.length>0&&(
-                        <div style={{display:"flex",alignItems:"center",gap:4,marginLeft:"auto"}}>
-                          {j.linkedCons.slice(0,4).map(c=>(
-                            <div key={c.id} title={c.name} style={{width:22,height:22,borderRadius:"50%",background:"#e8e4f0",display:"flex",alignItems:"center",justifyContent:"center",fontSize:8,color:C.purple,fontWeight:700}}>
-                              {c.name.trim().split(" ").map(w=>w[0]).slice(0,2).join("").toUpperCase()}
-                            </div>
-                          ))}
-                          {j.linkedCons.length>4&&<span style={{fontSize:11,color:C.textDim}}>+{j.linkedCons.length-4}</span>}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          );
-        })()}
-      </div>
-    );
-  };
+
 
   const JobView = () => {
     const acc=gAcc();const job=gJob();if(!acc||!job) return null;
