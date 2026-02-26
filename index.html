@@ -18,6 +18,7 @@ select option{background:#ffffff;}
 ::-webkit-scrollbar-track{background:#e8e7e8;}
 ::-webkit-scrollbar-thumb{background:#c5c3c6;border-radius:3px;}
 @keyframes fadeInUp{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+@keyframes spin{to{transform:rotate(360deg)}}
 .dup-card{animation:fadeInUp 0.18s ease both;}
 </style>
 </head>
@@ -35,6 +36,9 @@ const TIERS          = [1,2,3];
 const TIER_LABELS    = {1:"Priority",2:"Developing",3:"Long Game"};
 const TIER_COLORS    = {1:"#E8C547",2:"#7EB8F7",3:"#9B8FD4"};
 const PROPOSAL_OUTCOMES = ["Pending","Won","Lost","No Bid","Revised"];
+const CONTACT_ROLES   = ["Unknown","Decision Maker","Budget Holder","Champion","Influencer","Technical Contact","Blocker"];
+const ROLE_COLORS     = {"Decision Maker":C.green,"Budget Holder":"#c8980a","Champion":C.blue,"Influencer":C.purple,"Technical Contact":"#0891b2","Blocker":C.red,"Unknown":C.textDim};
+const HOW_MET         = ["","Referral","Cold Outreach","Event / Conference","Existing Relationship","LinkedIn","Other"];
 
 const IMPORT_FIELDS = [
   {key:"companyName",  label:"Company Name"},
@@ -419,6 +423,8 @@ function App() {
   const [mergeConDecs, setMergeConDecs]  = useState({});
   const [searchQ,     setSearchQ]        = useState("");
   const [listSort,    setListSort]       = useState("tier");
+  const [brief,       setBrief]          = useState(null);
+  const [briefLoading,setBriefLoading]   = useState(false);
   const fileRef = useRef();
 
   useEffect(()=>{loadData().then(setData);},[]);
@@ -464,8 +470,36 @@ function App() {
   const allJobs = data.accounts.flatMap(a=>a.jobs);
   const decidedJobs = allJobs.filter(j=>j.status==="Won"||j.status==="Lost");
   const winRate = decidedJobs.length>0 ? Math.round(decidedJobs.filter(j=>j.status==="Won").length/decidedJobs.length*100) : null;
-  const wonBidVal = allJobs.filter(j=>j.status==="Won").reduce((s,j)=>{const lp=j.proposals[j.proposals.length-1];const v=lp?parseCur(lp.amount):parseCur(j.estimatedValue);return s+(isNaN(v)?0:v);},0);
-  const totalBidVal = allJobs.reduce((s,j)=>{const lp=j.proposals[j.proposals.length-1];const v=lp?parseCur(lp.amount):parseCur(j.estimatedValue);return s+(isNaN(v)?0:v);},0);
+  const jVal = j => { const lp=j.proposals[j.proposals.length-1]; const v=lp?parseCur(lp.amount):parseCur(j.estimatedValue); return isNaN(v)?0:v; };
+  const wonBidVal      = allJobs.filter(j=>j.status==="Won").reduce((s,j)=>s+jVal(j),0);
+  const lostBidVal     = allJobs.filter(j=>j.status==="Lost").reduce((s,j)=>s+jVal(j),0);
+  const activeBidVal   = allJobs.filter(j=>j.status==="Active Pursuit").reduce((s,j)=>s+jVal(j),0);
+  const pendingBidVal  = allJobs.filter(j=>j.status==="Proposal Pending").reduce((s,j)=>s+jVal(j),0);
+  const budgetBidVal   = allJobs.filter(j=>j.status==="Budget / Budgetary Only").reduce((s,j)=>s+jVal(j),0);
+  const holdBidVal     = allJobs.filter(j=>j.status==="On Hold").reduce((s,j)=>s+jVal(j),0);
+  const totalBidVal    = allJobs.reduce((s,j)=>s+jVal(j),0);
+
+  // -- activity KPIs ----------------------------------------------
+  const allActs = data.accounts.flatMap(a=>a.contacts.flatMap(c=>c.activities));
+  const now30   = new Date(); now30.setDate(now30.getDate()-30);
+  const touchThisMonth = allActs.filter(a=>new Date(a.date)>=now30).length;
+
+  // activity type counts (top 6)
+  const actTypeCounts = {};
+  allActs.forEach(a=>{ actTypeCounts[a.type]=(actTypeCounts[a.type]||0)+1; });
+  const actTypeTop = Object.entries(actTypeCounts).sort((a,b)=>b[1]-a[1]).slice(0,6);
+  const actTypeTotal = actTypeTop.reduce((s,[,n])=>s+n,0);
+
+  // avg days between contacts per account (accounts that have 2+ activities)
+  const avgDaysBetween = (() => {
+    const gaps = [];
+    data.accounts.forEach(acc=>{
+      const acts = acc.contacts.flatMap(c=>c.activities).map(a=>new Date(a.date)).sort((a,b)=>a-b);
+      for(let i=1;i<acts.length;i++) gaps.push((acts[i]-acts[i-1])/86400000);
+    });
+    if(!gaps.length) return null;
+    return Math.round(gaps.reduce((s,g)=>s+g,0)/gaps.length);
+  })();
 
   const searchResults = (q) => {
     if(!q||q.length<2) return [];
@@ -541,6 +575,84 @@ function App() {
     setSA(accId);
     setForm({quickAccId:accId});
     setModal("quickLog");
+  };
+
+  const generateBrief = async () => {
+    setBriefLoading(true);
+    setBrief(null);
+    try {
+      // Build a focused data snapshot for the AI - only actionable signals
+      const today = new Date();
+      const fmtD = d => d ? new Date(d).toLocaleDateString("en-US",{month:"short",day:"numeric"}) : "";
+      const signals = [];
+
+      // Overdue follow-ups
+      data.accounts.forEach(acc=>acc.contacts.forEach(con=>con.activities.forEach(act=>{
+        if(act.followUp && isOverdue(act.followUp))
+          signals.push({type:"overdue_followup", acc:acc.name, con:con.name, role:con.role||"Unknown", actType:act.type, due:act.followUp, notes:act.notes||""});
+      })));
+
+      // Tier 1 accounts with no contact in 21+ days
+      data.accounts.filter(a=>a.tier===1).forEach(acc=>{
+        const acts = acc.contacts.flatMap(c=>c.activities).sort((a,b)=>new Date(b.date)-new Date(a.date));
+        const ds = acts[0] ? Math.floor((Date.now()-new Date(acts[0].date))/86400000) : 999;
+        if(ds>=21) signals.push({type:"cold_tier1", acc:acc.name, daysSince:ds, contacts:acc.contacts.map(c=>({name:c.name,role:c.role||"Unknown",strength:c.relStrength||0})), notes:acc.notes||""});
+      });
+
+      // Jobs with decision dates in next 14 days
+      data.accounts.forEach(acc=>acc.jobs.filter(j=>j.dueDate&&!["Won","Lost"].includes(j.status)).forEach(j=>{
+        const diff = Math.ceil((new Date(j.dueDate)-today)/86400000);
+        if(diff>=0 && diff<=14) signals.push({type:"decision_soon", acc:acc.name, job:j.name, status:j.status, value:fmtVal(j.estimatedValue)||(j.proposals[j.proposals.length-1]?.amount||""), dueDate:j.dueDate, daysLeft:diff, contacts:acc.contacts.map(c=>({name:c.name,role:c.role||"Unknown"})), jobNotes:j.notes||""});
+      }));
+
+      // Tier 1/2 accounts with no jobs yet
+      data.accounts.filter(a=>(a.tier===1||a.tier===2)&&a.jobs.length===0&&a.contacts.length>0).forEach(acc=>{
+        signals.push({type:"no_jobs", acc:acc.name, tier:acc.tier, contacts:acc.contacts.map(c=>({name:c.name,role:c.role||"Unknown"})), notes:acc.notes||""});
+      });
+
+      // Active jobs with no activity in 30+ days
+      data.accounts.forEach(acc=>acc.jobs.filter(j=>j.status==="Active Pursuit"||j.status==="Proposal Pending").forEach(j=>{
+        const linked = acc.contacts.flatMap(c=>c.activities.filter(a=>a.jobId===j.id)).sort((a,b)=>new Date(b.date)-new Date(a.date));
+        const ds = linked[0] ? Math.floor((Date.now()-new Date(linked[0].date))/86400000) : 999;
+        if(ds>=30) signals.push({type:"stale_active_job", acc:acc.name, job:j.name, status:j.status, daysSince:ds===999?"never":ds, contacts:acc.contacts.map(c=>({name:c.name,role:c.role||"Unknown"}))});
+      }));
+
+      if(!signals.length) {
+        setBrief([{priority:"low",action:"Your pipeline looks clear today.",detail:"No overdue items, cold accounts, or urgent decisions detected. Good time to log new outreach or scout new prospects.",accId:null,conId:null,jobId:null}]);
+        setBriefLoading(false);
+        return;
+      }
+
+      const prompt = `You are a senior business development advisor for a construction and design firm. Analyze these sales pipeline signals and generate a concise morning briefing with 4-8 specific recommended actions, ordered by priority.
+
+SIGNALS:
+${JSON.stringify(signals, null, 2)}
+
+Respond ONLY with a JSON array. Each item must have:
+- priority: "critical", "high", or "normal"
+- action: one short sentence (max 12 words)  --  the specific thing to do TODAY
+- detail: 2-3 sentences of specific, contextual advice referencing actual names, roles, job names, and values. Be direct and tactical. Reference the contact's role when relevant (e.g. "Sarah is your Decision Maker here").
+- accName: account name string (for navigation)
+- conName: contact name if applicable (or null)
+- jobName: job name if applicable (or null)
+
+No preamble, no markdown, no explanation. Raw JSON array only.`;
+
+      const res = await fetch("https://api.anthropic.com/v1/messages", {
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:1000,messages:[{role:"user",content:prompt}]})
+      });
+      const d = await res.json();
+      const txt = (d.content||[]).filter(b=>b.type==="text").map(b=>b.text).join("");
+      const clean = txt.replace(/```json|```/g,"").trim();
+      const items = JSON.parse(clean);
+      setBrief(Array.isArray(items)?items:[]);
+    } catch(e) {
+      console.error("Brief error:",e);
+      setBrief([{priority:"normal",action:"Could not generate briefing.",detail:"There was an error connecting to the AI. Check your connection and try again.",accName:null,conName:null,jobName:null}]);
+    }
+    setBriefLoading(false);
   };
 
   const openMergeContacts = () => {
@@ -738,7 +850,7 @@ function App() {
     );
   };
   const ConForm = ({isNew}) => {
-    const [f, setF] = useState({name:form.name||"",title:form.title||"",email:form.email||"",phone:form.phone||"",notes:form.notes||""});
+    const [f, setF] = useState({name:form.name||"",title:form.title||"",email:form.email||"",phone:form.phone||"",role:form.role||"Unknown",relStrength:form.relStrength||3,howMet:form.howMet||"",notes:form.notes||""});
     const upF = k => e => setF(p=>({...p,[k]:e.target.value}));
     return (
       <>
@@ -747,10 +859,34 @@ function App() {
           <Field label="Title" half><input style={inp} value={f.title} onChange={upF("title")}/></Field>
           <Field label="Email" half><input style={inp} value={f.email} onChange={upF("email")}/></Field>
         </Row>
-        <Field label="Phone"><input style={inp} value={f.phone} onChange={upF("phone")}/></Field>
-        <Field label="Notes"><textarea style={{...inp,resize:"vertical",height:70}} value={f.notes} onChange={upF("notes")}/></Field>
+        <Row>
+          <Field label="Role" half>
+            <select style={inp} value={f.role} onChange={upF("role")}>
+              {CONTACT_ROLES.map(r=><option key={r} value={r}>{r}</option>)}
+            </select>
+          </Field>
+          <Field label="Phone" half><input style={inp} value={f.phone} onChange={upF("phone")}/></Field>
+        </Row>
+        <Row>
+          <Field label="How We Met" half>
+            <select style={inp} value={f.howMet} onChange={upF("howMet")}>
+              {HOW_MET.map(h=><option key={h} value={h}>{h||"-- Select --"}</option>)}
+            </select>
+          </Field>
+          <Field label="Relationship Strength" half>
+            <div style={{display:"flex",gap:6,marginTop:4}}>
+              {[1,2,3,4,5].map(n=>(
+                <button key={n} type="button" onClick={()=>setF(p=>({...p,relStrength:n}))}
+                  style={{width:32,height:32,borderRadius:6,border:`1px solid ${f.relStrength>=n?"#c8980a60":C.border2}`,background:f.relStrength>=n?"#c8980a20":"transparent",color:f.relStrength>=n?"#c8980a":C.textDim,cursor:"pointer",fontSize:16,fontFamily:C.sans}}>
+                  {f.relStrength>=n?"\u2605":"\u2606"}
+                </button>
+              ))}
+            </div>
+          </Field>
+        </Row>
+        <Field label="Notes"><textarea style={{...inp,resize:"vertical",height:70}} value={f.notes} onChange={upF("notes")} placeholder="Context, talking points, relationship history..."/></Field>
         <button style={{...btn(C.gold,"#0a0d13"),width:"100%",justifyContent:"center",marginTop:4}} onClick={()=>{
-          const b={name:f.name||"New Contact",title:f.title||"",email:f.email||"",phone:f.phone||"",notes:f.notes||""};
+          const b={name:f.name||"New Contact",title:f.title||"",email:f.email||"",phone:f.phone||"",role:f.role||"Unknown",relStrength:parseInt(f.relStrength)||3,howMet:f.howMet||"",notes:f.notes||""};
           if(isNew) upd(d=>{d.accounts.find(a=>a.id===selAcc).contacts.push({id:uid(),...b,activities:[]});return d;});
           else upd(d=>{Object.assign(d.accounts.find(a=>a.id===selAcc).contacts.find(c=>c.id===form.id),b);return d;});
           closeModal();
@@ -1117,6 +1253,67 @@ function App() {
           </div>
         </div>
 
+        {/* -- Morning Brief Panel -- */}
+        <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:14,padding:"18px 22px",marginBottom:22}}>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:brief&&brief.length?16:0}}>
+            <div>
+              <div style={{fontFamily:C.serif,fontSize:17,color:C.textHi}}>Morning Brief</div>
+              <div style={{fontSize:12,color:C.textDim,marginTop:2}}>{new Date().toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric"})}</div>
+            </div>
+            <button
+              onClick={generateBrief}
+              disabled={briefLoading}
+              style={{...btn(briefLoading?C.border:C.gold,briefLoading?C.textDim:"#0a0d13"),minWidth:130,justifyContent:"center",opacity:briefLoading?0.6:1}}>
+              {briefLoading?"Generating...":brief?"Regenerate Brief":"Generate Brief"}
+            </button>
+          </div>
+
+          {briefLoading&&(
+            <div style={{display:"flex",alignItems:"center",gap:12,padding:"18px 0",color:C.textDim,fontSize:13}}>
+              <div style={{width:18,height:18,border:`2px solid ${C.gold}`,borderTopColor:"transparent",borderRadius:"50%",animation:"spin 0.8s linear infinite"}}/>
+              Analyzing your pipeline and relationships...
+            </div>
+          )}
+
+          {brief&&!briefLoading&&(
+            <div style={{display:"flex",flexDirection:"column",gap:10}}>
+              {brief.map((item,i)=>{
+                const pc = item.priority==="critical"?C.red:item.priority==="high"?C.amber:C.blue;
+                const acc = item.accName ? data.accounts.find(a=>a.name===item.accName) : null;
+                const con = acc&&item.conName ? acc.contacts.find(c=>c.name===item.conName) : null;
+                const job = acc&&item.jobName ? acc.jobs.find(j=>j.name===item.jobName) : null;
+                return (
+                  <div key={i} style={{background:C.bg,border:`1px solid ${pc}30`,borderLeft:`3px solid ${pc}`,borderRadius:8,padding:"12px 14px"}}>
+                    <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:12}}>
+                      <div style={{flex:1}}>
+                        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:5}}>
+                          <span style={{...pill(pc),fontSize:10,padding:"1px 7px",textTransform:"capitalize"}}>{item.priority}</span>
+                          {acc&&<span style={{fontSize:12,color:C.textDim}}>{item.accName}</span>}
+                        </div>
+                        <div style={{fontWeight:700,color:C.textHi,fontSize:14,marginBottom:4}}>{item.action}</div>
+                        <div style={{fontSize:13,color:"#52525b",lineHeight:1.6}}>{item.detail}</div>
+                      </div>
+                      {acc&&(
+                        <div style={{display:"flex",gap:6,flexShrink:0,marginTop:2}}>
+                          {job&&<button onClick={()=>{setSA(acc.id);setSJ(job.id);setView("job");}} style={{...btn(null,C.blue,"#1e3a5a"),fontSize:12,padding:"4px 10px"}}>Job</button>}
+                          {con&&<button onClick={()=>{setSA(acc.id);setSC(con.id);setView("contact");}} style={{...btn(null,C.purple,"#2a1e3d"),fontSize:12,padding:"4px 10px"}}>Contact</button>}
+                          <button onClick={()=>{setSA(acc.id);setView("account");setAccTab("contacts");}} style={{...btn(null,C.textLo,C.border2),fontSize:12,padding:"4px 10px"}}>Account</button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {!brief&&!briefLoading&&(
+            <div style={{color:C.textDim,fontSize:13,paddingTop:10}}>
+              Click "Generate Brief" to get AI-powered recommended actions based on your pipeline, overdue items, and upcoming decisions.
+            </div>
+          )}
+        </div>
+
         {alerts.length>0&&(
           <div style={{background:"#fefce8",border:"1px solid #f59e0b60",borderRadius:12,padding:"14px 18px",marginBottom:20}}>
             <div style={{color:C.gold,fontWeight:700,marginBottom:10,fontSize:13}}>Overdue Follow-Ups ({alerts.length})</div>
@@ -1128,24 +1325,113 @@ function App() {
           </div>
         )}
 
-        {(winRate!==null||totalBidVal>0)&&(
-          <div style={{display:"flex",gap:16,marginBottom:20,flexWrap:"wrap"}}>
-            {totalBidVal>0&&<div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:"12px 20px",display:"flex",flexDirection:"column",alignItems:"center",minWidth:110}}>
-              <div style={{fontWeight:700,fontSize:20,color:C.textHi}}>{fmt$(Math.round(totalBidVal))}</div>
-              <div style={{fontSize:11,color:C.textDim,marginTop:2,textTransform:"uppercase",letterSpacing:"0.07em"}}>Total Bid</div>
-            </div>}
-            {wonBidVal>0&&<div style={{background:C.surface,border:`1px solid ${C.green}40`,borderRadius:10,padding:"12px 20px",display:"flex",flexDirection:"column",alignItems:"center",minWidth:110}}>
-              <div style={{fontWeight:700,fontSize:20,color:C.green}}>{fmt$(Math.round(wonBidVal))}</div>
-              <div style={{fontSize:11,color:C.green,opacity:.7,marginTop:2,textTransform:"uppercase",letterSpacing:"0.07em"}}>Won</div>
-            </div>}
-            {winRate!==null&&<div style={{background:C.surface,border:`1px solid ${C.blue}40`,borderRadius:10,padding:"12px 20px",display:"flex",flexDirection:"column",alignItems:"center",minWidth:110}}>
-              <div style={{fontWeight:700,fontSize:20,color:C.blue}}>{winRate}%</div>
-              <div style={{fontSize:11,color:C.blue,opacity:.7,marginTop:2,textTransform:"uppercase",letterSpacing:"0.07em"}}>Win Rate</div>
-            </div>}
-            {decidedJobs.length>0&&<div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:"12px 20px",display:"flex",flexDirection:"column",alignItems:"center",minWidth:110}}>
-              <div style={{fontWeight:700,fontSize:20,color:C.textHi}}>{decidedJobs.filter(j=>j.status==="Won").length} / {decidedJobs.length}</div>
-              <div style={{fontSize:11,color:C.textDim,marginTop:2,textTransform:"uppercase",letterSpacing:"0.07em"}}>Jobs Won</div>
-            </div>}
+        {totalBidVal>0&&(
+          <div style={{marginBottom:24}}>
+
+            {/* -- Row 1: Pipeline tiles -- */}
+            <div style={{display:"flex",gap:10,marginBottom:14,flexWrap:"wrap"}}>
+              {[
+                {label:"Total Bid",  val:fmt$(Math.round(totalBidVal)), color:C.textHi, border:C.border,    always:true},
+                {label:"Won",        val:fmt$(Math.round(wonBidVal)),   color:C.green,  border:C.green,     val2:allJobs.filter(j=>j.status==="Won").length+" jobs"},
+                {label:"Active",     val:fmt$(Math.round(activeBidVal)),color:C.blue,   border:C.blue,      val2:allJobs.filter(j=>j.status==="Active Pursuit").length+" jobs"},
+                {label:"Pending",    val:fmt$(Math.round(pendingBidVal)),color:"#c8980a",border:"#c8980a",  val2:allJobs.filter(j=>j.status==="Proposal Pending").length+" jobs"},
+                {label:"Budgetary",  val:fmt$(Math.round(budgetBidVal)),color:C.textLo, border:C.border,    val2:allJobs.filter(j=>j.status==="Budget / Budgetary Only").length+" jobs"},
+                {label:"On Hold",    val:fmt$(Math.round(holdBidVal)),  color:C.purple, border:C.purple,    val2:allJobs.filter(j=>j.status==="On Hold").length+" jobs"},
+                {label:"Lost",       val:fmt$(Math.round(lostBidVal)),  color:C.red,    border:C.red,       val2:allJobs.filter(j=>j.status==="Lost").length+" jobs"},
+              ].filter(t=>t.always||(parseCur(t.val)>0)).map(t=>(
+                <div key={t.label} style={{background:C.surface,border:`1px solid ${t.border}30`,borderTop:`3px solid ${t.border}60`,borderRadius:10,padding:"11px 18px",display:"flex",flexDirection:"column",alignItems:"center",minWidth:100,flex:"1 1 auto"}}>
+                  <div style={{fontWeight:700,fontSize:18,color:t.color,lineHeight:1}}>{t.val||"--"}</div>
+                  {t.val2&&<div style={{fontSize:11,color:t.color,opacity:.6,marginTop:3}}>{t.val2}</div>}
+                  <div style={{fontSize:10,color:C.textDim,marginTop:4,textTransform:"uppercase",letterSpacing:"0.07em"}}>{t.label}</div>
+                </div>
+              ))}
+              {winRate!==null&&<div style={{background:C.surface,border:`1px solid ${C.blue}30`,borderTop:`3px solid ${C.blue}60`,borderRadius:10,padding:"11px 18px",display:"flex",flexDirection:"column",alignItems:"center",minWidth:100,flex:"1 1 auto"}}>
+                <div style={{fontWeight:700,fontSize:18,color:C.blue,lineHeight:1}}>{winRate}%</div>
+                <div style={{fontSize:11,color:C.blue,opacity:.6,marginTop:3}}>{decidedJobs.filter(j=>j.status==="Won").length} of {decidedJobs.length}</div>
+                <div style={{fontSize:10,color:C.textDim,marginTop:4,textTransform:"uppercase",letterSpacing:"0.07em"}}>Win Rate</div>
+              </div>}
+            </div>
+
+            {/* -- Row 2: Segmented pipeline bar -- */}
+            {(()=>{
+              const segs = [
+                {key:"Won",                   val:wonBidVal,     color:C.green},
+                {key:"Active Pursuit",         val:activeBidVal,  color:C.blue},
+                {key:"Proposal Pending",       val:pendingBidVal, color:"#c8980a"},
+                {key:"Budget / Budgetary Only",val:budgetBidVal,  color:C.textLo},
+                {key:"On Hold",                val:holdBidVal,    color:C.purple},
+                {key:"Lost",                   val:lostBidVal,    color:C.red},
+              ].filter(s=>s.val>0);
+              if(!segs.length) return null;
+              return (
+                <div>
+                  <div style={{display:"flex",height:12,borderRadius:8,overflow:"hidden",gap:2,marginBottom:8}}>
+                    {segs.map(s=>(
+                      <div key={s.key} title={s.key+": "+fmt$(Math.round(s.val))}
+                        style={{flex:s.val/totalBidVal,background:s.color,minWidth:4,transition:"flex .3s",cursor:"default"}}/>
+                    ))}
+                  </div>
+                  <div style={{display:"flex",gap:14,flexWrap:"wrap"}}>
+                    {segs.map(s=>(
+                      <span key={s.key} style={{display:"flex",alignItems:"center",gap:5,fontSize:11,color:C.textDim}}>
+                        <span style={{width:8,height:8,borderRadius:2,background:s.color,display:"inline-block",flexShrink:0}}/>
+                        {s.key} <span style={{color:s.color,fontWeight:600}}>{Math.round(s.val/totalBidVal*100)}%</span>
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
+
+          </div>
+        )}
+
+        {/* -- Activity Pulse -- */}
+        {allActs.length>0&&(
+          <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:"16px 20px",marginBottom:20}}>
+            <div style={{fontFamily:C.serif,fontSize:16,color:C.textHi,marginBottom:14}}>Activity Pulse</div>
+            <div style={{display:"flex",gap:20,flexWrap:"wrap",alignItems:"flex-start"}}>
+
+              {/* touchpoints this month */}
+              <div style={{display:"flex",flexDirection:"column",alignItems:"center",minWidth:90}}>
+                <div style={{fontWeight:700,fontSize:26,color:touchThisMonth>0?C.blue:C.textDim,lineHeight:1}}>{touchThisMonth}</div>
+                <div style={{fontSize:10,color:C.textDim,marginTop:4,textTransform:"uppercase",letterSpacing:"0.07em",textAlign:"center"}}>Touchpoints<br/>Last 30 Days</div>
+              </div>
+
+              <div style={{width:1,background:C.border,alignSelf:"stretch",margin:"0 4px"}}/>
+
+              {/* avg days between contacts */}
+              {avgDaysBetween!==null&&(
+                <>
+                  <div style={{display:"flex",flexDirection:"column",alignItems:"center",minWidth:90}}>
+                    <div style={{fontWeight:700,fontSize:26,color:avgDaysBetween<=14?C.green:avgDaysBetween<=30?C.amber:C.red,lineHeight:1}}>{avgDaysBetween}d</div>
+                    <div style={{fontSize:10,color:C.textDim,marginTop:4,textTransform:"uppercase",letterSpacing:"0.07em",textAlign:"center"}}>Avg Days<br/>Between Contact</div>
+                  </div>
+                  <div style={{width:1,background:C.border,alignSelf:"stretch",margin:"0 4px"}}/>
+                </>
+              )}
+
+              {/* activity type breakdown bar chart */}
+              {actTypeTop.length>0&&(
+                <div style={{flex:1,minWidth:200}}>
+                  <div style={{fontSize:10,color:C.textDim,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:8}}>Activity Breakdown</div>
+                  {actTypeTop.map(([type,count])=>{
+                    const pct = actTypeTotal>0?count/actTypeTotal:0;
+                    const barColor = type.includes("LinkedIn")?C.blue:type==="Email"?"#6b7280":type==="Proposal"?C.gold:type==="Phone Call"?C.purple:type==="Coffee"||type==="Lunch"||type==="Happy Hour"?C.green:C.amber;
+                    return (
+                      <div key={type} style={{display:"flex",alignItems:"center",gap:8,marginBottom:5}}>
+                        <div style={{fontSize:11,color:C.textLo,width:120,textAlign:"right",flexShrink:0,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{type}</div>
+                        <div style={{flex:1,background:C.bg,borderRadius:4,height:8,overflow:"hidden"}}>
+                          <div style={{width:(pct*100)+"%",height:"100%",background:barColor,borderRadius:4,transition:"width .4s"}}/>
+                        </div>
+                        <div style={{fontSize:11,color:C.textDim,width:28,textAlign:"right",flexShrink:0}}>{count}</div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+            </div>
           </div>
         )}
         <MktBar/>
@@ -1376,8 +1662,11 @@ function App() {
                   <div style={{display:"flex",alignItems:"center",gap:14}}>
                     <div style={{width:38,height:38,borderRadius:"50%",background:"#e8e4f0",display:"flex",alignItems:"center",justifyContent:"center",color:C.purple,flexShrink:0,fontSize:14,fontWeight:700,letterSpacing:"-0.02em"}}>{con.name.trim().split(" ").map(w=>w[0]).slice(0,2).join("").toUpperCase()}</div>
                     <div>
-                      <div style={{fontWeight:700,color:C.textHi}}>{con.name}</div>
-                      <div style={{fontSize:12,color:C.textDim}}>{con.title}{con.email?` / ${con.email}`:""}</div>
+                      <div style={{fontWeight:700,color:C.textHi,display:"flex",alignItems:"center",gap:8}}>
+                        {con.name}
+                        {con.role&&con.role!=="Unknown"&&<span style={{...pill(ROLE_COLORS[con.role]||C.textDim),fontSize:10,padding:"1px 6px"}}>{con.role}</span>}
+                      </div>
+                      <div style={{fontSize:12,color:C.textDim}}>{con.title}{con.email?` / ${con.email}`:""}{con.relStrength?` ${"\u2605".repeat(con.relStrength)}`:""}</div>
                     </div>
                   </div>
                   <div style={{display:"flex",alignItems:"center",gap:14}}>
@@ -1507,7 +1796,12 @@ function App() {
                 <button style={btn(null,C.blue,"#1e3a5a")} onClick={()=>{setForm({...con});setModal("editCon");}}>Edit</button>
               </div>
               <div style={{fontFamily:C.serif,fontSize:19,color:C.textHi,marginBottom:2}}>{con.name}</div>
-              <div style={{color:C.textLo,fontSize:13,marginBottom:14}}>{con.title}</div>
+              <div style={{color:C.textLo,fontSize:13,marginBottom:10}}>{con.title}</div>
+              <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:14,alignItems:"center"}}>
+                {con.role&&con.role!=="Unknown"&&<span style={{...pill(ROLE_COLORS[con.role]||C.textDim),fontSize:11}}>{con.role}</span>}
+                {con.relStrength>0&&<span style={{fontSize:13,color:"#c8980a",letterSpacing:1}}>{"\u2605".repeat(con.relStrength)}{"\u2606".repeat(5-(con.relStrength||0))}</span>}
+                {con.howMet&&<span style={{fontSize:11,color:C.textDim,fontStyle:"italic"}}>via {con.howMet}</span>}
+              </div>
               {(con.email||con.phone)&&<><div style={divL}/>{con.email&&<><div style={lbl}>Email</div><div style={{color:C.text,fontSize:13,marginTop:3,marginBottom:10}}>{con.email}</div></>}{con.phone&&<><div style={lbl}>Phone</div><div style={{color:C.text,fontSize:13,marginTop:3,marginBottom:10}}>{con.phone}</div></>}</>}
               <div style={divL}/>
               <div style={lbl}>Last Contact</div>
