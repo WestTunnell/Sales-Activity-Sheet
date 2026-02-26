@@ -37,7 +37,7 @@ const TIER_LABELS    = {1:"Priority",2:"Developing",3:"Long Game"};
 const TIER_COLORS    = {1:"#E8C547",2:"#7EB8F7",3:"#9B8FD4"};
 const PROPOSAL_OUTCOMES = ["Pending","Won","Lost","No Bid","Revised"];
 const CONTACT_ROLES   = ["Unknown","Decision Maker","Budget Holder","Champion","Influencer","Technical Contact","Blocker"];
-const ROLE_COLORS     = {"Decision Maker":C.green,"Budget Holder":"#c8980a","Champion":C.blue,"Influencer":C.purple,"Technical Contact":"#0891b2","Blocker":C.red,"Unknown":C.textDim};
+const ROLE_COLORS     = {"Decision Maker":"#16a34a","Budget Holder":"#c8980a","Champion":"#3a7fd4","Influencer":"#7a5fc0","Technical Contact":"#0891b2","Blocker":"#dc2626","Unknown":"#aaa8b0"};
 const HOW_MET         = ["","Referral","Cold Outreach","Event / Conference","Existing Relationship","LinkedIn","Other"];
 
 const IMPORT_FIELDS = [
@@ -581,81 +581,62 @@ function App() {
     setBriefLoading(true);
     setBrief(null);
     try {
-      // Build a focused data snapshot for the AI - only actionable signals
       const today = new Date();
-      const fmtD = d => d ? new Date(d).toLocaleDateString("en-US",{month:"short",day:"numeric"}) : "";
       const signals = [];
 
-      // Overdue follow-ups
       data.accounts.forEach(acc=>acc.contacts.forEach(con=>con.activities.forEach(act=>{
         if(act.followUp && isOverdue(act.followUp))
-          signals.push({type:"overdue_followup", acc:acc.name, con:con.name, role:con.role||"Unknown", actType:act.type, due:act.followUp, notes:act.notes||""});
+          signals.push({type:"overdue_followup",acc:acc.name,con:con.name,role:con.role||"Unknown",actType:act.type,due:act.followUp,notes:act.notes||""});
       })));
 
-      // Tier 1 accounts with no contact in 21+ days
       data.accounts.filter(a=>a.tier===1).forEach(acc=>{
-        const acts = acc.contacts.flatMap(c=>c.activities).sort((a,b)=>new Date(b.date)-new Date(a.date));
-        const ds = acts[0] ? Math.floor((Date.now()-new Date(acts[0].date))/86400000) : 999;
-        if(ds>=21) signals.push({type:"cold_tier1", acc:acc.name, daysSince:ds, contacts:acc.contacts.map(c=>({name:c.name,role:c.role||"Unknown",strength:c.relStrength||0})), notes:acc.notes||""});
+        const acts=acc.contacts.flatMap(c=>c.activities).sort((a,b)=>new Date(b.date)-new Date(a.date));
+        const ds=acts[0]?Math.floor((Date.now()-new Date(acts[0].date))/86400000):999;
+        if(ds>=21) signals.push({type:"cold_tier1",acc:acc.name,daysSince:ds,contacts:acc.contacts.map(c=>({name:c.name,role:c.role||"Unknown",strength:c.relStrength||0})),notes:acc.notes||""});
       });
 
-      // Jobs with decision dates in next 14 days
       data.accounts.forEach(acc=>acc.jobs.filter(j=>j.dueDate&&!["Won","Lost"].includes(j.status)).forEach(j=>{
-        const diff = Math.ceil((new Date(j.dueDate)-today)/86400000);
-        if(diff>=0 && diff<=14) signals.push({type:"decision_soon", acc:acc.name, job:j.name, status:j.status, value:fmtVal(j.estimatedValue)||((j.proposals.length>0?j.proposals[j.proposals.length-1].amount:"")), dueDate:j.dueDate, daysLeft:diff, contacts:acc.contacts.map(c=>({name:c.name,role:c.role||"Unknown"})), jobNotes:j.notes||""});
+        const diff=Math.ceil((new Date(j.dueDate)-today)/86400000);
+        if(diff>=0&&diff<=14) signals.push({type:"decision_soon",acc:acc.name,job:j.name,status:j.status,value:fmtVal(j.estimatedValue)||(j.proposals.length>0?j.proposals[j.proposals.length-1].amount:""),dueDate:j.dueDate,daysLeft:diff,contacts:acc.contacts.map(c=>({name:c.name,role:c.role||"Unknown"})),jobNotes:j.notes||""});
       }));
 
-      // Tier 1/2 accounts with no jobs yet
       data.accounts.filter(a=>(a.tier===1||a.tier===2)&&a.jobs.length===0&&a.contacts.length>0).forEach(acc=>{
-        signals.push({type:"no_jobs", acc:acc.name, tier:acc.tier, contacts:acc.contacts.map(c=>({name:c.name,role:c.role||"Unknown"})), notes:acc.notes||""});
+        signals.push({type:"no_jobs",acc:acc.name,tier:acc.tier,contacts:acc.contacts.map(c=>({name:c.name,role:c.role||"Unknown"})),notes:acc.notes||""});
       });
 
-      // Active jobs with no activity in 30+ days
       data.accounts.forEach(acc=>acc.jobs.filter(j=>j.status==="Active Pursuit"||j.status==="Proposal Pending").forEach(j=>{
-        const linked = acc.contacts.flatMap(c=>c.activities.filter(a=>a.jobId===j.id)).sort((a,b)=>new Date(b.date)-new Date(a.date));
-        const ds = linked[0] ? Math.floor((Date.now()-new Date(linked[0].date))/86400000) : 999;
-        if(ds>=30) signals.push({type:"stale_active_job", acc:acc.name, job:j.name, status:j.status, daysSince:ds===999?"never":ds, contacts:acc.contacts.map(c=>({name:c.name,role:c.role||"Unknown"}))});
+        const linked=acc.contacts.flatMap(c=>c.activities.filter(a=>a.jobId===j.id)).sort((a,b)=>new Date(b.date)-new Date(a.date));
+        const ds=linked[0]?Math.floor((Date.now()-new Date(linked[0].date))/86400000):999;
+        if(ds>=30) signals.push({type:"stale_active_job",acc:acc.name,job:j.name,status:j.status,daysSince:ds===999?"never":ds,contacts:acc.contacts.map(c=>({name:c.name,role:c.role||"Unknown"}))});
       }));
 
       if(!signals.length) {
-        setBrief([{priority:"low",action:"Your pipeline looks clear today.",detail:"No overdue items, cold accounts, or urgent decisions detected. Good time to log new outreach or scout new prospects.",accId:null,conId:null,jobId:null}]);
+        setBrief([{priority:"low",action:"Your pipeline looks clear today.",detail:"No overdue items, cold accounts, or urgent decisions detected. Good time to log new outreach or scout new prospects.",accName:null,conName:null,jobName:null}]);
         setBriefLoading(false);
         return;
       }
 
-      const prompt = `You are a senior business development advisor for a construction and design firm. Analyze these sales pipeline signals and generate a concise morning briefing with 4-8 specific recommended actions, ordered by priority.
-
-SIGNALS:
-${JSON.stringify(signals, null, 2)}
-
-Respond ONLY with a JSON array. Each item must have:
-- priority: "critical", "high", or "normal"
-- action: one short sentence (max 12 words)  --  the specific thing to do TODAY
-- detail: 2-3 sentences of specific, contextual advice referencing actual names, roles, job names, and values. Be direct and tactical. Reference the contact's role when relevant (e.g. "Sarah is your Decision Maker here").
-- accName: account name string (for navigation)
-- conName: contact name if applicable (or null)
-- jobName: job name if applicable (or null)
-
-No preamble, no markdown, no explanation. Raw JSON array only.`;
+      const systemPrompt = "You are a senior BD advisor for a construction and design firm. Analyze pipeline signals and return a JSON array of 4-8 prioritized recommended actions. Each item must have: priority (critical/high/normal), action (one short sentence max 12 words), detail (2-3 sentences of specific tactical advice using real names and roles), accName (string or null), conName (string or null), jobName (string or null). Return raw JSON array only, no markdown, no explanation.";
+      const userPrompt = "Signals: " + JSON.stringify(signals);
 
       const res = await fetch("https://api.anthropic.com/v1/messages", {
         method:"POST",
         headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:1000,messages:[{role:"user",content:prompt}]})
+        body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:1200,system:systemPrompt,messages:[{role:"user",content:userPrompt}]})
       });
-      const d = await res.json();
-      const txt = (d.content||[]).filter(b=>b.type==="text").map(b=>b.text).join("");
-      const clean = txt.replace(/```json|```/g,"").trim();
+      const rd = await res.json();
+      const txt = (rd.content||[]).filter(b=>b.type==="text").map(b=>b.text).join("");
+      const clean = txt.replace(/^```json\s*/,"").replace(/\s*```$/,"").trim();
       const items = JSON.parse(clean);
       setBrief(Array.isArray(items)?items:[]);
-    } catch(e) {
-      console.error("Brief error:",e);
+    } catch(err) {
+      console.error("Brief error:",err);
       setBrief([{priority:"normal",action:"Could not generate briefing.",detail:"There was an error connecting to the AI. Check your connection and try again.",accName:null,conName:null,jobName:null}]);
     }
     setBriefLoading(false);
   };
 
-  const openMergeContacts = () => {
+    const openMergeContacts = () => {
     const acc = gAcc();
     if(!acc||acc.contacts.length<2){alert("Need at least 2 contacts to find duplicates.");return;}
     const THRESHOLD = 0.55;
