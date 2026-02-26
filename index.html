@@ -602,7 +602,7 @@ function App() {
       // Jobs with decision dates in next 14 days
       data.accounts.forEach(acc=>acc.jobs.filter(j=>j.dueDate&&!["Won","Lost"].includes(j.status)).forEach(j=>{
         const diff = Math.ceil((new Date(j.dueDate)-today)/86400000);
-        if(diff>=0 && diff<=14) signals.push({type:"decision_soon", acc:acc.name, job:j.name, status:j.status, value:fmtVal(j.estimatedValue)||(j.proposals[j.proposals.length-1]?.amount||""), dueDate:j.dueDate, daysLeft:diff, contacts:acc.contacts.map(c=>({name:c.name,role:c.role||"Unknown"})), jobNotes:j.notes||""});
+        if(diff>=0 && diff<=14) signals.push({type:"decision_soon", acc:acc.name, job:j.name, status:j.status, value:fmtVal(j.estimatedValue)||((j.proposals.length>0?j.proposals[j.proposals.length-1].amount:"")), dueDate:j.dueDate, daysLeft:diff, contacts:acc.contacts.map(c=>({name:c.name,role:c.role||"Unknown"})), jobNotes:j.notes||""});
       }));
 
       // Tier 1/2 accounts with no jobs yet
