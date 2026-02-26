@@ -417,6 +417,8 @@ function App() {
   const [pendingFile,setPF]   = useState(null);
   const [mergeConPairs,setMergeConPairs] = useState([]);
   const [mergeConDecs, setMergeConDecs]  = useState({});
+  const [searchQ,     setSearchQ]        = useState("");
+  const [listSort,    setListSort]       = useState("tier");
   const fileRef = useRef();
 
   useEffect(()=>{loadData().then(setData);},[]);
@@ -442,11 +444,47 @@ function App() {
   const pipeSummary = acc => {
     const active = acc.jobs.filter(j=>!["Won","Lost"].includes(j.status)).length;
     const won    = acc.jobs.filter(j=>j.status==="Won").length;
-    const val    = acc.jobs.reduce((s,j)=>{const lp=j.proposals[j.proposals.length-1];return s+(lp?parseCur(lp.amount):0);},0);
-    return {active,won,total:acc.jobs.length,val};
+    const total  = acc.jobs.length;
+    // For each job, get best value: last proposal amount, or estimatedValue
+    const jobVal = j => {
+      const lp = j.proposals[j.proposals.length-1];
+      const v  = lp ? parseCur(lp.amount) : parseCur(j.estimatedValue);
+      return isNaN(v) ? 0 : v;
+    };
+    const wonVal     = acc.jobs.filter(j=>j.status==="Won").reduce((s,j)=>s+jobVal(j),0);
+    const lostVal    = acc.jobs.filter(j=>j.status==="Lost").reduce((s,j)=>s+jobVal(j),0);
+    const pendingVal = acc.jobs.filter(j=>!["Won","Lost"].includes(j.status)).reduce((s,j)=>s+jobVal(j),0);
+    const totalVal   = wonVal + lostVal + pendingVal;
+    return {active, won, total, wonVal, lostVal, pendingVal, totalVal,
+      val: wonVal + pendingVal}; // keep legacy val for compat
   };
 
   const filteredAccs = mktF.length===0 ? data.accounts : data.accounts.filter(a=>mktF.every(m=>(a.markets||[]).includes(m)));
+
+  const allJobs = data.accounts.flatMap(a=>a.jobs);
+  const decidedJobs = allJobs.filter(j=>j.status==="Won"||j.status==="Lost");
+  const winRate = decidedJobs.length>0 ? Math.round(decidedJobs.filter(j=>j.status==="Won").length/decidedJobs.length*100) : null;
+  const wonBidVal = allJobs.filter(j=>j.status==="Won").reduce((s,j)=>{const lp=j.proposals[j.proposals.length-1];const v=lp?parseCur(lp.amount):parseCur(j.estimatedValue);return s+(isNaN(v)?0:v);},0);
+  const totalBidVal = allJobs.reduce((s,j)=>{const lp=j.proposals[j.proposals.length-1];const v=lp?parseCur(lp.amount):parseCur(j.estimatedValue);return s+(isNaN(v)?0:v);},0);
+
+  const searchResults = (q) => {
+    if(!q||q.length<2) return [];
+    const ql = q.toLowerCase();
+    const res = [];
+    data.accounts.forEach(acc=>{
+      if(acc.name.toLowerCase().includes(ql)||(acc.industry||"").toLowerCase().includes(ql))
+        res.push({type:"account",label:acc.name,sub:acc.industry||"Account",accId:acc.id});
+      (acc.contacts||[]).forEach(con=>{
+        if(con.name.toLowerCase().includes(ql)||(con.title||"").toLowerCase().includes(ql)||(con.email||"").toLowerCase().includes(ql))
+          res.push({type:"contact",label:con.name,sub:(con.title?con.title+" at ":"")+acc.name,accId:acc.id,conId:con.id});
+      });
+      (acc.jobs||[]).forEach(job=>{
+        if(job.name.toLowerCase().includes(ql)||(job.location||"").toLowerCase().includes(ql))
+          res.push({type:"job",label:job.name,sub:job.status+" - "+acc.name,accId:acc.id,jobId:job.id,status:job.status});
+      });
+    });
+    return res.slice(0,12);
+  };
 
   const closeModal = () => {setModal(null);setForm({});};
 
@@ -495,6 +533,15 @@ function App() {
   const delProp = (jid,pid) => upd(d=>{const j=d.accounts.find(a=>a.id===selAcc).jobs.find(j=>j.id===jid);j.proposals=j.proposals.filter(p=>p.id!==pid);return d;});
   const delAcc  = id => {upd(d=>{d.accounts=d.accounts.filter(a=>a.id!==id);return d;});setView("dash");setSA(null);};
   const setTier = (id,t) => upd(d=>{d.accounts.find(a=>a.id===id).tier=t;return d;});
+
+  const openQuickLog = (accId, e) => {
+    e.stopPropagation();
+    const acc = data.accounts.find(a=>a.id===accId);
+    if(!acc||acc.contacts.length===0){alert("Add a contact to this account first.");return;}
+    setSA(accId);
+    setForm({quickAccId:accId});
+    setModal("quickLog");
+  };
 
   const openMergeContacts = () => {
     const acc = gAcc();
@@ -927,7 +974,80 @@ function App() {
       </Modal>
     );
 
-        if(modal==="settings") return (
+        if(modal==="quickLog") {
+          const qlAcc = data.accounts.find(a=>a.id===form.quickAccId);
+          if(!qlAcc) return null;
+          const QLForm = () => {
+            const [qlCon,  setQlCon]  = useState(qlAcc.contacts[0]?qlAcc.contacts[0].id:"");
+            const [qlType, setQlType] = useState("Email");
+            const [qlDate, setQlDate] = useState(new Date().toISOString().slice(0,10));
+            const [qlNotes,setQlNotes]= useState("");
+            const [qlFU,   setQlFU]   = useState("");
+            const [qlJob,  setQlJob]  = useState("");
+            const [qlDone, setQlDone] = useState(false);
+            if(qlDone) return <div style={{textAlign:"center",padding:40,color:C.green,fontWeight:700,fontSize:15}}>Activity logged!</div>;
+            return (
+              <>
+                <Field label="Contact">
+                  <select style={inp} value={qlCon} onChange={e=>setQlCon(e.target.value)}>
+                    {qlAcc.contacts.map(c=><option key={c.id} value={c.id}>{c.name}{c.title?" -- "+c.title:""}</option>)}
+                  </select>
+                </Field>
+                <Row>
+                  <Field label="Type" half><select style={inp} value={qlType} onChange={e=>setQlType(e.target.value)}>{ACTIVITY_TYPES.map(t=><option key={t} value={t}>{t}</option>)}</select></Field>
+                  <Field label="Date" half><input type="date" style={inp} value={qlDate} onChange={e=>setQlDate(e.target.value)}/></Field>
+                </Row>
+                {qlAcc.jobs.length>0&&<Field label="Linked Job (optional)"><select style={inp} value={qlJob} onChange={e=>setQlJob(e.target.value)}><option value="">-- No specific job --</option>{qlAcc.jobs.map(j=><option key={j.id} value={j.id}>{j.name}</option>)}</select></Field>}
+                <Field label="Notes"><textarea style={{...inp,resize:"vertical",height:80}} value={qlNotes} onChange={e=>setQlNotes(e.target.value)} placeholder="Quick notes on this touchpoint..."/></Field>
+                <Field label="Follow-Up Date (optional)"><input type="date" style={inp} value={qlFU} onChange={e=>setQlFU(e.target.value)}/></Field>
+                <button style={{...btn(C.gold,"#0a0d13"),width:"100%",justifyContent:"center",marginTop:4}} onClick={()=>{
+                  if(!qlCon){alert("Select a contact.");return;}
+                  upd(d=>{const a=d.accounts.find(x=>x.id===qlAcc.id);if(a){const c=a.contacts.find(x=>x.id===qlCon);if(c)c.activities.unshift({id:uid(),type:qlType,date:qlDate,notes:qlNotes,followUp:qlFU||null,jobId:qlJob||null});}return d;});
+                  setQlDone(true);setTimeout(()=>closeModal(),700);
+                }}>Log Activity</button>
+              </>
+            );
+          };
+          return <Modal title={"Log Activity -- "+qlAcc.name} wide onClose={closeModal}><QLForm/></Modal>;
+        }
+
+        if(modal==="globalSearch") {
+          const SForm = () => {
+            const [q, setQ] = useState("");
+            const res = searchResults(q);
+            return (
+              <>
+                <div style={{marginBottom:14}}>
+                  <input autoFocus style={{...inp,fontSize:15,padding:"11px 14px"}} placeholder="Search accounts, contacts, jobs..." value={q} onChange={e=>setQ(e.target.value)}/>
+                </div>
+                {q.length>=2 ? (
+                  res.length===0
+                    ? <div style={{color:C.textDim,textAlign:"center",padding:28,fontSize:13}}>No results for "{q}"</div>
+                    : <div>{res.map((r,i)=>{
+                        const tc=r.type==="account"?C.gold:r.type==="contact"?C.blue:STATUS_COLORS[r.status]||C.purple;
+                        return (
+                          <div key={i} style={{...card,marginBottom:8,cursor:"pointer",padding:"11px 16px"}}
+                            onClick={()=>{if(r.type==="account"){setSA(r.accId);setView("account");setAccTab("contacts");}else if(r.type==="contact"){setSA(r.accId);setSC(r.conId);setView("contact");}else{setSA(r.accId);setSJ(r.jobId);setView("job");}closeModal();}}
+                            onMouseEnter={e=>e.currentTarget.style.borderColor=tc+"60"}
+                            onMouseLeave={e=>e.currentTarget.style.borderColor=C.border}>
+                            <div style={{display:"flex",alignItems:"center",gap:10}}>
+                              {tag(tc,r.type)}
+                              <div>
+                                <div style={{fontWeight:700,color:C.textHi,fontSize:14}}>{r.label}</div>
+                                <div style={{fontSize:12,color:C.textDim,marginTop:1}}>{r.sub}</div>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}</div>
+                ) : <div style={{color:C.textDim,textAlign:"center",padding:28,fontSize:13}}>Type at least 2 characters</div>}
+              </>
+            );
+          };
+          return <Modal title="Search" wide onClose={closeModal}><SForm/></Modal>;
+        }
+
+                if(modal==="settings") return (
       <Modal title="Settings" onClose={closeModal}>
         <Field label="Your Name"><input style={inp} value={form.userName!=null?form.userName:userName} onChange={ff("userName")}/></Field>
         <div style={divL}/>
@@ -1008,13 +1128,43 @@ function App() {
           </div>
         )}
 
+        {(winRate!==null||totalBidVal>0)&&(
+          <div style={{display:"flex",gap:16,marginBottom:20,flexWrap:"wrap"}}>
+            {totalBidVal>0&&<div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:"12px 20px",display:"flex",flexDirection:"column",alignItems:"center",minWidth:110}}>
+              <div style={{fontWeight:700,fontSize:20,color:C.textHi}}>{fmt$(Math.round(totalBidVal))}</div>
+              <div style={{fontSize:11,color:C.textDim,marginTop:2,textTransform:"uppercase",letterSpacing:"0.07em"}}>Total Bid</div>
+            </div>}
+            {wonBidVal>0&&<div style={{background:C.surface,border:`1px solid ${C.green}40`,borderRadius:10,padding:"12px 20px",display:"flex",flexDirection:"column",alignItems:"center",minWidth:110}}>
+              <div style={{fontWeight:700,fontSize:20,color:C.green}}>{fmt$(Math.round(wonBidVal))}</div>
+              <div style={{fontSize:11,color:C.green,opacity:.7,marginTop:2,textTransform:"uppercase",letterSpacing:"0.07em"}}>Won</div>
+            </div>}
+            {winRate!==null&&<div style={{background:C.surface,border:`1px solid ${C.blue}40`,borderRadius:10,padding:"12px 20px",display:"flex",flexDirection:"column",alignItems:"center",minWidth:110}}>
+              <div style={{fontWeight:700,fontSize:20,color:C.blue}}>{winRate}%</div>
+              <div style={{fontSize:11,color:C.blue,opacity:.7,marginTop:2,textTransform:"uppercase",letterSpacing:"0.07em"}}>Win Rate</div>
+            </div>}
+            {decidedJobs.length>0&&<div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:"12px 20px",display:"flex",flexDirection:"column",alignItems:"center",minWidth:110}}>
+              <div style={{fontWeight:700,fontSize:20,color:C.textHi}}>{decidedJobs.filter(j=>j.status==="Won").length} / {decidedJobs.length}</div>
+              <div style={{fontSize:11,color:C.textDim,marginTop:2,textTransform:"uppercase",letterSpacing:"0.07em"}}>Jobs Won</div>
+            </div>}
+          </div>
+        )}
         <MktBar/>
 
         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",borderBottom:`1px solid ${C.border}`,marginBottom:28}}>
           <div style={{display:"flex"}}>
             {["pyramid","list"].map(t=><button key={t} style={tabS(dashTab===t)} onClick={()=>setDashTab(t)}>{t==="pyramid"?"Tier Pyramid":"Account List"}</button>)}
           </div>
-          <Legend/>
+          <div style={{display:"flex",alignItems:"center",gap:8}}>
+            {dashTab==="list"&&(
+              <div style={{display:"flex",alignItems:"center",gap:6,marginRight:8}}>
+                <span style={{fontSize:11,color:C.textDim,textTransform:"uppercase",letterSpacing:"0.07em"}}>Sort:</span>
+                {[["tier","Tier"],["name","A-Z"],["value","Value"],["activity","Recent"]].map(([k,l])=>(
+                  <button key={k} onClick={()=>setListSort(k)} style={{borderRadius:6,padding:"3px 10px",fontSize:12,cursor:"pointer",fontWeight:listSort===k?700:400,border:`1px solid ${listSort===k?C.gold+"80":C.border2}`,background:listSort===k?C.gold+"15":"transparent",color:listSort===k?C.gold:C.textDim,fontFamily:C.sans}}>{l}</button>
+                ))}
+              </div>
+            )}
+            <Legend/>
+          </div>
         </div>
 
         {dashTab==="pyramid" ? (
@@ -1066,15 +1216,33 @@ function App() {
                           </div>
                         )}
                         {ps.total>0&&(
-                          <div style={{display:"flex",gap:8,marginBottom:8,flexWrap:"wrap"}}>
-                            {ps.active>0&&tag(C.blue,`${ps.active} active`)}
-                            {ps.won>0&&tag(C.green,`${ps.won} won`)}
-                            {ps.val>0&&<span style={{color:C.gold,fontWeight:700,fontSize:13}}>{fmt$(ps.val)}</span>}
+                          <div style={{marginBottom:8}}>
+                            {ps.totalVal>0&&(
+                              <div style={{display:"flex",alignItems:"center",gap:4,marginBottom:5,flexWrap:"wrap"}}>
+                                {ps.wonVal>0&&<span style={{fontSize:12,fontWeight:700,color:C.green}}>{fmt$(ps.wonVal)}</span>}
+                                {ps.wonVal>0&&(ps.pendingVal>0||ps.lostVal>0)&&<span style={{color:C.textDim,fontSize:11}}>/</span>}
+                                {ps.pendingVal>0&&<span style={{fontSize:12,fontWeight:700,color:C.gold}}>{fmt$(ps.pendingVal)}</span>}
+                                {ps.pendingVal>0&&ps.lostVal>0&&<span style={{color:C.textDim,fontSize:11}}>/</span>}
+                                {ps.lostVal>0&&<span style={{fontSize:12,fontWeight:700,color:C.red}}>{fmt$(ps.lostVal)}</span>}
+                              </div>
+                            )}
+                            <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                              {ps.wonVal>0&&<span style={{...pill(C.green),fontSize:11,padding:"1px 7px"}}>{ps.won} won</span>}
+                              {ps.active>0&&<span style={{...pill(C.blue),fontSize:11,padding:"1px 7px"}}>{ps.active} active</span>}
+                              {ps.lostVal>0&&<span style={{...pill(C.red),fontSize:11,padding:"1px 7px"}}>{acc.jobs.filter(j=>j.status==="Lost").length} lost</span>}
+                            </div>
                           </div>
                         )}
                         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
                           <span style={{color:C.textDim,fontSize:11}}>{acc.contacts.length} contacts</span>
-                          <span style={{display:"flex",alignItems:"center",gap:5,fontSize:12,color:col}}>{dot(col)}{actLabel(ds)}</span>
+                          <div style={{display:"flex",alignItems:"center",gap:8}}>
+                            <span style={{display:"flex",alignItems:"center",gap:5,fontSize:12,color:col}}>{dot(col)}{actLabel(ds)}</span>
+                            {acc.contacts.length>0&&<button
+                              onClick={e=>openQuickLog(acc.id,e)}
+                              style={{background:C.gold+"18",border:`1px solid ${C.gold}50`,borderRadius:6,color:C.gold,cursor:"pointer",fontSize:11,padding:"2px 8px",fontFamily:C.sans,fontWeight:600}}
+                              title="Quick log activity"
+                            >+ Log</button>}
+                          </div>
                         </div>
                       </div>
                     );
@@ -1085,7 +1253,21 @@ function App() {
             );
           })
         ) : (
-          [...filteredAccs].sort((a,b)=>a.tier-b.tier||a.name.localeCompare(b.name)).map(acc=>{
+          (()=>{
+            const sorted = [...filteredAccs].sort((a,b)=>{
+              if(listSort==="tier") return a.tier-b.tier||a.name.localeCompare(b.name);
+              if(listSort==="name") return a.name.localeCompare(b.name);
+              if(listSort==="value"){const av=pipeSummary(a).totalVal;const bv=pipeSummary(b).totalVal;return bv-av;}
+              if(listSort==="activity"){
+                const la=a.contacts.flatMap(c=>c.activities).sort((x,y)=>new Date(y.date)-new Date(x.date))[0];
+                const lb=b.contacts.flatMap(c=>c.activities).sort((x,y)=>new Date(y.date)-new Date(x.date))[0];
+                const da=la?new Date(la.date):new Date(0);const db=lb?new Date(lb.date):new Date(0);
+                return db-da;
+              }
+              return 0;
+            });
+            return sorted;
+          })().map(acc=>{
             const lastAct=acc.contacts.flatMap(c=>c.activities).sort((a,b)=>new Date(b.date)-new Date(a.date))[0];
             const ds=lastAct?daysSince(lastAct.date):null;
             const col=actColor(ds,YT,RT);
@@ -1104,9 +1286,16 @@ function App() {
                   </div>
                 </div>
                 <div style={{display:"flex",alignItems:"center",gap:16}}>
-                  {ps.val>0&&<span style={{color:C.gold,fontWeight:700}}>{fmt$(ps.val)}</span>}
+                  {ps.totalVal>0&&(
+                    <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                      {ps.wonVal>0&&<span style={{fontSize:12,fontWeight:700,color:C.green}}>{fmt$(ps.wonVal)}</span>}
+                      {ps.pendingVal>0&&<span style={{fontSize:12,fontWeight:700,color:C.gold}}>{fmt$(ps.pendingVal)}</span>}
+                      {ps.lostVal>0&&<span style={{fontSize:12,fontWeight:700,color:C.red}}>{fmt$(ps.lostVal)}</span>}
+                    </div>
+                  )}
                   <span style={{display:"flex",alignItems:"center",gap:5,fontSize:12,color:col}}>{dot(col)}{actLabel(ds)}</span>
                   <span style={{fontSize:12,color:C.textDim}}>{acc.jobs.length} jobs / {acc.contacts.length} contacts</span>
+                  {acc.contacts.length>0&&<button onClick={e=>openQuickLog(acc.id,e)} style={{background:C.gold+"18",border:`1px solid ${C.gold}50`,borderRadius:6,color:C.gold,cursor:"pointer",fontSize:11,padding:"3px 10px",fontFamily:C.sans,fontWeight:600}}>+ Log</button>}
                   <span style={{color:C.textLo}}>></span>
                 </div>
               </div>
@@ -1139,11 +1328,11 @@ function App() {
             {ps.total>0&&(
               <div style={{background:C.bg,borderRadius:8,padding:"10px 14px",marginBottom:14}}>
                 <div style={lbl}>Pipeline</div>
-                <div style={{display:"flex",gap:20,marginTop:8,flexWrap:"wrap"}}>
-                  <div style={{textAlign:"center"}}><div style={{color:C.textHi,fontWeight:700,fontSize:18}}>{ps.total}</div><div style={{color:C.textDim,fontSize:11}}>Total</div></div>
-                  <div style={{textAlign:"center"}}><div style={{color:C.blue,fontWeight:700,fontSize:18}}>{ps.active}</div><div style={{color:C.textDim,fontSize:11}}>Active</div></div>
-                  <div style={{textAlign:"center"}}><div style={{color:C.green,fontWeight:700,fontSize:18}}>{ps.won}</div><div style={{color:C.textDim,fontSize:11}}>Won</div></div>
-                  {ps.val>0&&<div style={{textAlign:"center"}}><div style={{color:C.gold,fontWeight:700,fontSize:18}}>{fmt$(ps.val)}</div><div style={{color:C.textDim,fontSize:11}}>In Proposals</div></div>}
+                <div style={{display:"flex",gap:16,marginTop:8,flexWrap:"wrap"}}>
+                  <div style={{textAlign:"center"}}><div style={{color:C.textHi,fontWeight:700,fontSize:18}}>{ps.total}</div><div style={{color:C.textDim,fontSize:11}}>Jobs</div></div>
+                  {ps.wonVal>0&&<div style={{textAlign:"center"}}><div style={{color:C.green,fontWeight:700,fontSize:18}}>{fmt$(ps.wonVal)}</div><div style={{color:C.green,fontSize:11,opacity:.7}}>Won</div></div>}
+                  {ps.pendingVal>0&&<div style={{textAlign:"center"}}><div style={{color:C.gold,fontWeight:700,fontSize:18}}>{fmt$(ps.pendingVal)}</div><div style={{color:C.gold,fontSize:11,opacity:.7}}>Pending</div></div>}
+                  {ps.lostVal>0&&<div style={{textAlign:"center"}}><div style={{color:C.red,fontWeight:700,fontSize:18}}>{fmt$(ps.lostVal)}</div><div style={{color:C.red,fontSize:11,opacity:.7}}>Lost</div></div>}
                 </div>
               </div>
             )}
@@ -1185,7 +1374,7 @@ function App() {
                   onClick={()=>{setSC(con.id);setView("contact");}}
                   onMouseEnter={e=>e.currentTarget.style.borderColor=C.border2} onMouseLeave={e=>e.currentTarget.style.borderColor=C.border}>
                   <div style={{display:"flex",alignItems:"center",gap:14}}>
-                    <div style={{width:38,height:38,borderRadius:"50%",background:"#e8e4f0",display:"flex",alignItems:"center",justifyContent:"center",color:C.textDim,flexShrink:0,fontSize:18}}>P</div>
+                    <div style={{width:38,height:38,borderRadius:"50%",background:"#e8e4f0",display:"flex",alignItems:"center",justifyContent:"center",color:C.purple,flexShrink:0,fontSize:14,fontWeight:700,letterSpacing:"-0.02em"}}>{con.name.trim().split(" ").map(w=>w[0]).slice(0,2).join("").toUpperCase()}</div>
                     <div>
                       <div style={{fontWeight:700,color:C.textHi}}>{con.name}</div>
                       <div style={{fontSize:12,color:C.textDim}}>{con.title}{con.email?` / ${con.email}`:""}</div>
@@ -1220,8 +1409,9 @@ function App() {
                       <span style={{fontWeight:700,color:C.textHi}}>{job.name}</span>
                       {job.location&&<span style={{fontSize:12,color:C.textDim}}>{job.location}</span>}
                     </div>
-                    <div style={{display:"flex",alignItems:"center",gap:14}}>
+                    <div style={{display:"flex",alignItems:"center",gap:10}}>
                       {(job.estimatedValue||(lp&&lp.amount))&&<span style={{color:C.gold,fontWeight:700}}>{fmtVal(job.estimatedValue)||lp.amount}</span>}
+                      {job.dueDate&&!["Won","Lost"].includes(job.status)&&(()=>{const dd=new Date(job.dueDate);const diff=Math.ceil((dd-new Date())/86400000);if(diff<0)return <span style={{...pill(C.red),fontSize:11,padding:"1px 7px"}}>OVERDUE</span>;if(diff<=7)return <span style={{...pill(C.red),fontSize:11,padding:"1px 7px"}}>Due {diff}d</span>;if(diff<=21)return <span style={{...pill(C.amber),fontSize:11,padding:"1px 7px"}}>Due {diff}d</span>;return <span style={{fontSize:11,color:C.textDim}}>Due {diff}d</span>;})()}
                       <span style={{color:C.textLo}}>></span>
                     </div>
                   </div>
@@ -1313,7 +1503,7 @@ function App() {
           <div>
             <div style={card}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:14}}>
-                <div style={{width:46,height:46,borderRadius:"50%",background:"#e8e4f0",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,color:C.textDim}}>P</div>
+                <div style={{width:46,height:46,borderRadius:"50%",background:"#e8e4f0",display:"flex",alignItems:"center",justifyContent:"center",fontSize:15,color:C.purple,fontWeight:700,letterSpacing:"-0.02em"}}>{con.name.trim().split(" ").map(w=>w[0]).slice(0,2).join("").toUpperCase()}</div>
                 <button style={btn(null,C.blue,"#1e3a5a")} onClick={()=>{setForm({...con});setModal("editCon");}}>Edit</button>
               </div>
               <div style={{fontFamily:C.serif,fontSize:19,color:C.textHi,marginBottom:2}}>{con.name}</div>
@@ -1365,9 +1555,11 @@ function App() {
         <div style={{fontFamily:C.serif,fontSize:22,color:C.textHi,letterSpacing:"-0.02em",cursor:"pointer"}} onClick={()=>setView("dash")}>
           Sales<span style={{color:C.gold}}>OS</span>
         </div>
-        <div style={{display:"flex",alignItems:"center",gap:12}}>
-          {alerts.length>0&&<span style={{...pill(C.gold),display:"inline-flex",alignItems:"center",gap:5}}>Overdue: {alerts.length}</span>}
-          <span style={{color:C.textDim,fontSize:13}}>{userName}</span>
+        <div style={{display:"flex",alignItems:"center",gap:10}}>
+          <button style={{...btn(null,C.textLo,C.border2),gap:6}} onClick={()=>{setModal("globalSearch");}}>Search</button>
+          {alerts.length>0&&<span style={{...pill(C.amber),display:"inline-flex",alignItems:"center",gap:5,cursor:"pointer"}} onClick={()=>setView("dash")}>Overdue: {alerts.length}</span>}
+          {winRate!==null&&<span style={{fontSize:12,color:C.textDim,borderLeft:`1px solid ${C.border}`,paddingLeft:10}}>{winRate}% win rate</span>}
+          <span style={{color:C.textDim,fontSize:13,borderLeft:`1px solid ${C.border}`,paddingLeft:10}}>{userName}</span>
           <button style={btn(null,C.textLo,C.border2)} onClick={()=>{setForm({});setModal("settings");}}>Settings</button>
         </div>
       </div>
