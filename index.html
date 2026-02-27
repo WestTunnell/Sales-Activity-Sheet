@@ -27,21 +27,6 @@ select option{background:#ffffff;}
 <script type="text/babel">
 const {useState,useEffect,useRef} = React;
 
-class ErrorBoundary extends React.Component {
-  constructor(props) { super(props); this.state = {error: null}; }
-  componentDidCatch(err, info) { this.setState({error: err.message + '\n' + (info&&info.componentStack||'')}); }
-  static getDerivedStateFromError(err) { return {error: err.message}; }
-  render() {
-    if(this.state.error) return (
-      <div style={{background:'#1a0000',color:'#ff6b6b',padding:32,fontFamily:'monospace',whiteSpace:'pre-wrap',fontSize:13,minHeight:'100vh'}}>
-        {'RUNTIME ERROR - PLEASE SHARE THIS WITH CLAUDE:\n\n' + this.state.error}
-      </div>
-    );
-    return this.props.children;
-  }
-}
-
-
 const STORAGE_KEY = "sales_os_v5";
 const DEFAULT_MARKETS = ["General Contractor","Construction Manager","Owner / Developer","Home Builder","Subcontractor","Design-Build","Healthcare","Industrial","Government / Public","Mixed-Use / Multifamily"];
 const JOB_STATUSES   = ["Active Pursuit","Proposal Pending","Won","Lost","On Hold","Budget / Budgetary Only"];
@@ -438,6 +423,7 @@ function App() {
   const [searchQ,     setSearchQ]        = useState("");
   const [listSort,    setListSort]       = useState("tier");
   const [jobSort,     setJobSort]         = useState("due");
+  const [feedFilter,  setFeedFilter]      = useState("all");
   const [brief,       setBrief]          = useState(null);
   const [briefLoading,setBriefLoading]   = useState(false);
   const fileRef = useRef();
@@ -501,6 +487,14 @@ function App() {
   const budgetBidVal  = windowJobs.filter(j=>j.status==="Budget / Budgetary Only").reduce((s,j)=>s+jVal(j),0);
   const holdBidVal    = windowJobs.filter(j=>j.status==="On Hold").reduce((s,j)=>s+jVal(j),0);
   const totalBidVal   = windowJobs.reduce((s,j)=>s+jVal(j),0);
+  const pipeSegs = [
+    {key:"Won",                    val:wonBidVal,     color:C.green},
+    {key:"Active Pursuit",         val:activeBidVal,  color:C.blue},
+    {key:"Proposal Pending",       val:pendingBidVal, color:"#c8980a"},
+    {key:"Budget / Budgetary Only",val:budgetBidVal,  color:C.textLo},
+    {key:"On Hold",                val:holdBidVal,    color:C.purple},
+    {key:"Lost",                   val:lostBidVal,    color:C.red},
+  ].filter(s=>s.val>0);
 
   // -- activity KPIs ----------------------------------------------
   const allActs = data.accounts.flatMap(a=>a.contacts.flatMap(c=>c.activities));
@@ -514,15 +508,12 @@ function App() {
   const actTypeTotal = actTypeTop.reduce((s,[,n])=>s+n,0);
 
   // avg days between contacts per account (accounts that have 2+ activities)
-  const avgDaysBetween = (() => {
-    const gaps = [];
-    data.accounts.forEach(acc=>{
-      const acts = acc.contacts.flatMap(c=>c.activities).map(a=>new Date(a.date)).sort((a,b)=>a-b);
-      for(let i=1;i<acts.length;i++) gaps.push((acts[i]-acts[i-1])/86400000);
-    });
-    if(!gaps.length) return null;
-    return Math.round(gaps.reduce((s,g)=>s+g,0)/gaps.length);
-  })();
+  const avgGaps = [];
+  data.accounts.forEach(acc=>{
+    const acts = acc.contacts.flatMap(c=>c.activities).map(a=>new Date(a.date)).sort((a,b)=>a-b);
+    for(let i=1;i<acts.length;i++) avgGaps.push((acts[i]-acts[i-1])/86400000);
+  });
+  const avgDaysBetween = avgGaps.length ? Math.round(avgGaps.reduce((s,g)=>s+g,0)/avgGaps.length) : null;
 
   const searchResults = (q) => {
     if(!q||q.length<2) return [];
@@ -1240,6 +1231,105 @@ function App() {
     </div>
   );
 
+  const ActivityFeedView = ({feedFilter,data,setSA,setSC,setSJ,setView,setAccTab}) => {
+    const TYPE_COLORS = {
+      "Email":C.blue,"Proposal":C.gold,"Phone Call":C.purple,
+      "Coffee":C.green,"Lunch":C.green,"Happy Hour":C.green,
+      "Market Event":C.amber,"Entertainment":C.amber,"Site Visit":C.amber,
+      "LinkedIn Connection Request":"#0077b5","LinkedIn Message":"#0077b5","LinkedIn Engagement":"#0077b5",
+      "Other":C.textDim
+    };
+    const allActs = data.accounts.flatMap(acc=>
+      acc.contacts.flatMap(con=>
+        con.activities.map(act=>({
+          ...act,
+          accId:acc.id, accName:acc.name, accTier:acc.tier,
+          conId:con.id, conName:con.name, conTitle:con.title,
+          jobName: (acc.jobs.find(j=>j.id===act.jobId)||{}).name || null,
+          jobId: act.jobId || null,
+        }))
+      )
+    ).sort((a,b)=>new Date(b.date)-new Date(a.date));
+
+    const filtered = feedFilter==="all" ? allActs : allActs.filter(a=>a.type===feedFilter);
+
+    if(filtered.length===0) return (
+      <div style={{...card,color:C.textDim,textAlign:"center",padding:48,fontSize:13}}>
+        {feedFilter==="all" ? "No activities logged yet." : "No activities of this type logged yet."}
+      </div>
+    );
+
+    // Group by date
+    const groups = [];
+    let currentDate = null;
+    filtered.forEach(act => {
+      if(act.date !== currentDate) {
+        currentDate = act.date;
+        groups.push({date:act.date, acts:[]});
+      }
+      groups[groups.length-1].acts.push(act);
+    });
+
+    const fmtDate = d => {
+      const dt = new Date(d+"T12:00:00");
+      const today = new Date(); today.setHours(12,0,0,0);
+      const yesterday = new Date(today); yesterday.setDate(today.getDate()-1);
+      if(dt.toDateString()===today.toDateString()) return "Today";
+      if(dt.toDateString()===yesterday.toDateString()) return "Yesterday";
+      return dt.toLocaleDateString("en-US",{weekday:"short",month:"short",day:"numeric",year:dt.getFullYear()!==today.getFullYear()?"numeric":undefined});
+    };
+
+    return (
+      <div>
+        <div style={{fontSize:12,color:C.textDim,marginBottom:18}}>
+          {filtered.length} {feedFilter==="all"?"activities":feedFilter+" activities"} across {new Set(filtered.map(a=>a.accId)).size} accounts
+        </div>
+        {groups.map(group=>(
+          <div key={group.date} style={{marginBottom:24}}>
+            <div style={{fontSize:11,fontWeight:700,color:C.textDim,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:10,display:"flex",alignItems:"center",gap:10}}>
+              <span>{fmtDate(group.date)}</span>
+              <div style={{flex:1,height:1,background:C.border}}/>
+              <span style={{color:C.border2}}>{group.acts.length}</span>
+            </div>
+            {group.acts.map(act=>{
+              const tc = TYPE_COLORS[act.type] || C.textDim;
+              return (
+                <div key={act.id} style={{...card,marginBottom:8,padding:"12px 16px",display:"flex",gap:14,alignItems:"flex-start"}}
+                  onMouseEnter={e=>e.currentTarget.style.borderColor=C.border2}
+                  onMouseLeave={e=>e.currentTarget.style.borderColor=C.border}>
+                  <div style={{flexShrink:0,marginTop:2}}>
+                    <span style={{...pill(tc),fontSize:11,padding:"2px 8px",whiteSpace:"nowrap"}}>{act.type}</span>
+                  </div>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",marginBottom:act.notes?6:0}}>
+                      <span style={{fontWeight:700,color:C.textHi,cursor:"pointer"}}
+                        onClick={()=>{setSA(act.accId);setSC(act.conId);setView("contact");}}>
+                        {act.conName}
+                      </span>
+                      <span style={{color:C.textDim,fontSize:12}}>at</span>
+                      <span style={{color:C.gold,fontSize:12,fontWeight:600,cursor:"pointer"}}
+                        onClick={()=>{setSA(act.accId);setView("account");setAccTab("contacts");}}>
+                        {act.accName}
+                      </span>
+                      {tag(TIER_COLORS[act.accTier],"T"+act.accTier)}
+                      {act.jobName&&(
+                        <span style={{...pill(C.textDim),fontSize:11,padding:"1px 7px",cursor:"pointer"}}
+                          onClick={()=>{setSA(act.accId);setSJ(act.jobId);setView("job");}}>
+                          {act.jobName}
+                        </span>
+                      )}
+                    </div>
+                    {act.notes&&<div style={{fontSize:13,color:C.textLo,lineHeight:1.5}}>{act.notes}</div>}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ))}
+      </div>
+    );
+  };
+
   const JobListView = ({jobSort,inWindow,jVal,setSA,setSJ,setView,data}) => {
     const STATUS_ORDER={"Active Pursuit":0,"Proposal Pending":1,"Budget / Budgetary Only":2,"On Hold":3,"Won":4,"Lost":5};
     const flatJobs=data.accounts.flatMap(acc=>
@@ -1332,7 +1422,7 @@ function App() {
     );
   };
 
-    const DashView = () => {
+  const DashView = () => {
     const sortAlpha = arr => [...arr].sort((a,b)=>a.name.localeCompare(b.name));
     const tierGroups = TIERS.map(tier=>({tier,accs:sortAlpha(filteredAccs.filter(a=>a.tier===tier))}));
     return (
@@ -1448,36 +1538,7 @@ function App() {
               </div>}
             </div>
 
-            {/* -- Row 2: Segmented pipeline bar -- */}
-            {(()=>{
-              const segs = [
-                {key:"Won",                   val:wonBidVal,     color:C.green},
-                {key:"Active Pursuit",         val:activeBidVal,  color:C.blue},
-                {key:"Proposal Pending",       val:pendingBidVal, color:"#c8980a"},
-                {key:"Budget / Budgetary Only",val:budgetBidVal,  color:C.textLo},
-                {key:"On Hold",                val:holdBidVal,    color:C.purple},
-                {key:"Lost",                   val:lostBidVal,    color:C.red},
-              ].filter(s=>s.val>0);
-              if(!segs.length) return null;
-              return (
-                <div>
-                  <div style={{display:"flex",height:12,borderRadius:8,overflow:"hidden",gap:2,marginBottom:8}}>
-                    {segs.map(s=>(
-                      <div key={s.key} title={s.key+": "+fmt$(Math.round(s.val))}
-                        style={{flex:s.val/totalBidVal,background:s.color,minWidth:4,transition:"flex .3s",cursor:"default"}}/>
-                    ))}
-                  </div>
-                  <div style={{display:"flex",gap:14,flexWrap:"wrap"}}>
-                    {segs.map(s=>(
-                      <span key={s.key} style={{display:"flex",alignItems:"center",gap:5,fontSize:11,color:C.textDim}}>
-                        <span style={{width:8,height:8,borderRadius:2,background:s.color,display:"inline-block",flexShrink:0}}/>
-                        {s.key} <span style={{color:s.color,fontWeight:600}}>{Math.round(s.val/totalBidVal*100)}%</span>
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              );
-            })()}
+
 
           </div>
         )}
@@ -1534,7 +1595,7 @@ function App() {
 
         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",borderBottom:`1px solid ${C.border}`,marginBottom:28}}>
           <div style={{display:"flex"}}>
-            {[["pyramid","Tier Pyramid"],["list","Account List"],["jobs","Job List"]].map(([t,l])=>(
+            {[["pyramid","Tier Pyramid"],["list","Account List"],["jobs","Job List"],["feed","Activity Feed"]].map(([t,l])=>(
               <button key={t} style={tabS(dashTab===t)} onClick={()=>setDashTab(t)}>{l}</button>
             ))}
           </div>
@@ -1555,7 +1616,15 @@ function App() {
                 ))}
               </div>
             )}
-            {dashTab!=="jobs"&&<Legend/>}
+            {dashTab==="feed"&&(
+              <div style={{display:"flex",alignItems:"center",gap:6,marginRight:8,flexWrap:"wrap"}}>
+                <span style={{fontSize:11,color:C.textDim,textTransform:"uppercase",letterSpacing:"0.07em"}}>Type:</span>
+                {[["all","All"],["LinkedIn Connection Request","LI Connect"],["LinkedIn Message","LI Message"],["LinkedIn Engagement","LI Engage"],["Email","Email"],["Phone Call","Call"],["Coffee","Coffee"],["Lunch","Lunch"],["Happy Hour","Happy Hour"],["Proposal","Proposal"],["Site Visit","Site Visit"]].map(([k,l])=>(
+                  <button key={k} onClick={()=>setFeedFilter(k)} style={{borderRadius:6,padding:"3px 10px",fontSize:12,cursor:"pointer",fontWeight:feedFilter===k?700:400,border:`1px solid ${feedFilter===k?C.gold+"80":C.border2}`,background:feedFilter===k?C.gold+"15":"transparent",color:feedFilter===k?C.gold:C.textDim,fontFamily:C.sans,whiteSpace:"nowrap"}}>{l}</button>
+                ))}
+              </div>
+            )}
+            {dashTab!=="jobs"&&dashTab!=="feed"&&<Legend/>}
           </div>
         </div>
 
@@ -1674,6 +1743,7 @@ function App() {
         })}
 
         {dashTab==="jobs"&&<JobListView jobSort={jobSort} inWindow={inWindow} jVal={jVal} setSA={setSA} setSJ={setSJ} setView={setView} data={data}/>}
+        {dashTab==="feed"&&<ActivityFeedView feedFilter={feedFilter} data={data} setSA={setSA} setSC={setSC} setSJ={setSJ} setView={setView} setAccTab={setAccTab}/>}
 
       </div>
     );
@@ -1787,7 +1857,7 @@ function App() {
                     </div>
                     <div style={{display:"flex",alignItems:"center",gap:10}}>
                       {(job.estimatedValue||(lp&&lp.amount))&&<span style={{color:C.gold,fontWeight:700}}>{fmtVal(job.estimatedValue)||lp.amount}</span>}
-                      {job.dueDate&&!["Won","Lost"].includes(job.status)&&(()=>{const dd=new Date(job.dueDate);const diff=Math.ceil((dd-new Date())/86400000);if(diff<0)return <span style={{...pill(C.red),fontSize:11,padding:"1px 7px"}}>OVERDUE</span>;if(diff<=7)return <span style={{...pill(C.red),fontSize:11,padding:"1px 7px"}}>Due {diff}d</span>;if(diff<=21)return <span style={{...pill(C.amber),fontSize:11,padding:"1px 7px"}}>Due {diff}d</span>;return <span style={{fontSize:11,color:C.textDim}}>Due {diff}d</span>;})()}
+                      {job.dueDate&&!["Won","Lost"].includes(job.status)&&(jDiff=>jDiff<0?<span style={{...pill(C.red),fontSize:11,padding:"1px 7px"}}>OVERDUE</span>:jDiff<=7?<span style={{...pill(C.red),fontSize:11,padding:"1px 7px"}}>Due {jDiff}d</span>:jDiff<=21?<span style={{...pill(C.amber),fontSize:11,padding:"1px 7px"}}>Due {jDiff}d</span>:<span style={{fontSize:11,color:C.textDim}}>Due {jDiff}d</span>)(Math.ceil((new Date(job.dueDate)-new Date())/86400000))}
                       <span style={{color:C.textLo}}>></span>
                     </div>
                   </div>
@@ -1797,8 +1867,9 @@ function App() {
             })}
           </>
         )}
-
-
+      </div>
+    );
+  };
 
   const JobView = () => {
     const acc=gAcc();const job=gJob();if(!acc||!job) return null;
@@ -1954,7 +2025,7 @@ function App() {
   );
 }
 
-ReactDOM.createRoot(document.getElementById("root")).render(<ErrorBoundary><App/></ErrorBoundary>);
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
 </script>
 </body>
 </html>
