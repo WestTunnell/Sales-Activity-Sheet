@@ -116,6 +116,7 @@ async function loadData() {
       const d = JSON.parse(raw);
       if (!d.settings) d.settings = DEFAULT_DATA.settings;
       if (!d.settings.markets) d.settings.markets = [...DEFAULT_MARKETS];
+      if (!d.generalActivities) d.generalActivities = [];
       d.accounts.forEach(a => {
         if (!a.jobs) a.jobs = [];
         if (!a.markets) a.markets = [];
@@ -471,7 +472,13 @@ function App() {
 
   const alerts = [];
   data.accounts.forEach(acc=>acc.contacts.forEach(con=>con.activities.forEach(act=>{
-    if(act.followUp&&isOverdue(act.followUp)) alerts.push({accName:acc.name,conName:con.name,type:act.type,followUp:act.followUp,accId:acc.id,conId:con.id});
+    if(!act.followUp||!isOverdue(act.followUp)) return;
+    // Skip if linked job is Budgetary Only
+    if(act.jobId){
+      const linkedJob=acc.jobs.find(j=>j.id===act.jobId);
+      if(linkedJob&&linkedJob.status==="Budget / Budgetary Only") return;
+    }
+    alerts.push({accName:acc.name,conName:con.name,type:act.type,followUp:act.followUp,accId:acc.id,conId:con.id});
   })));
 
   const pipeSummary = acc => {
@@ -670,7 +677,11 @@ function App() {
           if(diff!==null&&diff>=0&&diff<=14) decisionsDue.push({job:j.name,acc:acc.name,dueDate:j.dueDate,status:j.status,daysLeft:diff});
         });
         acc.contacts.forEach(con=>con.activities.forEach(act=>{
-          if(act.followUp&&isOverdue(act.followUp)) overdueItems.push({acc:acc.name,con:con.name,type:act.type,due:act.followUp});
+          if(act.followUp&&isOverdue(act.followUp)){
+            const linkedJob=acc.jobs.find(j=>j.id===act.jobId);
+            if(!linkedJob||linkedJob.status!=="Budget / Budgetary Only")
+              overdueItems.push({acc:acc.name,con:con.name,type:act.type,due:act.followUp});
+          }
         }));
       });
       const coldT1=data.accounts.filter(a=>a.tier===1).filter(acc=>{
@@ -723,14 +734,13 @@ function App() {
       +"pre{white-space:pre-wrap;font-family:Georgia,serif;font-size:14px;line-height:1.85;}"
       +"@media print{body{margin:24px;}}</style></head><body>"
       +"<h1>Fairco Landscape Development</h1>"
-      +"<h2>Weekly BD Report &mdash; Week of "
+      +"<h2>Weekly BD Report - Week of "
       +mon.toLocaleDateString("en-US",{month:"long",day:"numeric"})
-      +" &ndash; "+sun.toLocaleDateString("en-US",{month:"long",day:"numeric",year:"numeric"})
+      +" to "+sun.toLocaleDateString("en-US",{month:"long",day:"numeric",year:"numeric"})
       +"</h2><pre>"+esc+"</pre>"
       +"<"+"script>window.onload=function(){window.print();}<"+"/script>"
       +"</body></html>";
-    w.document.write(html);
-    w.document.close();
+    w.document.write(html); w.document.close();
   };
 
 
@@ -1242,7 +1252,7 @@ function App() {
                         const tc=r.type==="account"?C.gold:r.type==="contact"?C.blue:STATUS_COLORS[r.status]||C.purple;
                         return (
                           <div key={i} style={{...card,marginBottom:8,cursor:"pointer",padding:"11px 16px"}}
-                            onClick={()=>{if(r.type==="account"){setSA(r.accId);setView("account");setAccTab("contacts");}else if(r.type==="contact"){setSA(r.accId);setSC(r.conId);setView("contact");}else{setSA(r.accId);setSJ(r.jobId);setView("job");}closeModal();}}
+                            onClick={()=>{if(r.type==="account"){navTo("account",{accId:r.accId,accTab:"contacts"});}else if(r.type==="contact"){navTo("contact",{accId:r.accId,conId:r.conId});}else{navTo("job",{accId:r.accId,jobId:r.jobId});}closeModal();}}
                             onMouseEnter={e=>e.currentTarget.style.borderColor=tc+"60"}
                             onMouseLeave={e=>e.currentTarget.style.borderColor=C.border}>
                             <div style={{display:"flex",alignItems:"center",gap:10}}>
@@ -1371,7 +1381,7 @@ function App() {
                 {jobs.map(j=>{
                   const sc=STATUS_COLORS[j.status]||C.textDim;
                   return (
-                    <div key={j.id} onClick={()=>{setSA(j.accId);setSJ(j.id);setView("job");}}
+                    <div key={j.id} onClick={()=>navTo("job",{accId:j.accId,jobId:j.id})}
                       style={{background:sc+"22",border:`1px solid ${sc}50`,borderRadius:4,padding:"2px 5px",marginBottom:2,cursor:"pointer",fontSize:10,color:sc,fontWeight:600,lineHeight:1.3,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}
                       title={j.name+" — "+j.accName}>
                       {j.name}
@@ -1441,17 +1451,20 @@ function App() {
         });
 
         const addMarkers = (lat, lon, jobs) => {
-          jobs.forEach((j,idx)=>{
-            const sc = STATUS_COLORS[j.status]||"#6b7280";
-            // Slightly offset jobs at same location so pins don't stack
-            const jitter = idx===0 ? 0 : idx*0.002;
-            const icon = L.divIcon({
-              html: "<div style=\"width:14px;height:14px;border-radius:50%;background:"+sc+";border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,0.4)\"></div>",
-              className:"",iconSize:[14,14],iconAnchor:[7,7]
-            });
-            const marker = L.marker([parseFloat(lat)+jitter, parseFloat(lon)+jitter],{icon}).addTo(map);
-            marker.bindPopup("<div style=\"font-family:sans-serif;min-width:180px;padding:4px\"><b style=\"color:#111;font-size:14px\">"+j.name+"</b><br/><span style=\"color:#555;font-size:12px\">"+j.accName+"</span><br/><span style=\"color:"+sc+";font-size:11px;font-weight:700\">"+j.status+"</span>"+(j.dueDate?"<br/><span style=\"color:#888;font-size:11px\">Due: "+j.dueDate+"</span>":"")+"<br/><br/><button onclick=\"window._mapJobClick('"+j.accId+"','"+j.id+"')\" style=\"background:#3a7fd4;color:#fff;border:none;padding:5px 12px;border-radius:4px;cursor:pointer;font-weight:700;font-size:12px;width:100%\">Open Job →</button></div>");
-          });
+          const domJob = jobs.find(j=>STATUS_COLORS[j.status]) || jobs[0];
+          const sc = domJob ? STATUS_COLORS[domJob.status]||"#6b7280" : "#6b7280";
+          const count = jobs.length;
+          const size = count > 1 ? 28 : 18;
+          const html = count > 1
+            ? `<div style="width:${size}px;height:${size}px;border-radius:50%;background:${sc};border:2px solid #fff;box-shadow:0 2px 8px rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#fff;font-family:sans-serif">${count}</div>`
+            : `<div style="width:${size}px;height:${size}px;border-radius:50%;background:${sc};border:2px solid #fff;box-shadow:0 2px 8px rgba(0,0,0,0.5)"></div>`;
+          const icon = L.divIcon({html,className:"",iconSize:[size,size],iconAnchor:[size/2,size/2]});
+          const accLine = jobs[0]&&jobs[0].accName ? `<div style="color:#888;font-size:12px;margin-bottom:6px">${jobs[0].accName}</div>` : "";
+          const popupLines = jobs.map(j=>`<div style="margin-bottom:4px"><strong>${j.name}</strong> (${j.status})${j.estimatedValue?" · "+j.estimatedValue:""}</div>`).join("");
+          L.marker([parseFloat(lat), parseFloat(lon)], {icon})
+            .bindPopup(`<div style="font-family:sans-serif;font-size:13px;min-width:160px">${accLine}${popupLines}</div>`)
+            .on("click",()=>{ if(count===1) navTo("job",{accId:jobs[0].accId,jobId:jobs[0].id}); })
+            .addTo(map);
         };
 
         // Process locations - cached instant, new ones staggered 120ms
@@ -1477,7 +1490,7 @@ function App() {
         });
 
         window._mapJobClick = (accId,jobId) => {
-          setSA(accId); setSJ(jobId); setView("job");
+          navTo("job",{accId,jobId});
         };
       }).catch(()=>setLoading(false));
 
@@ -1512,7 +1525,7 @@ function App() {
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
               {jobsMissingLoc.map(j=>(
                 <div key={j.id+j.accId}
-                  onClick={()=>{setSA(j.accId);setSJ(j.id);setView("job");}}
+                  onClick={()=>navTo("job",{accId:j.accId,jobId:j.id})}
                   style={{background:"#fff",border:"1px solid #fcd34d",borderRadius:8,padding:"8px 12px",cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center"}}
                   onMouseEnter={e=>e.currentTarget.style.borderColor="#d97706"}
                   onMouseLeave={e=>e.currentTarget.style.borderColor="#fcd34d"}>
@@ -1527,7 +1540,7 @@ function App() {
           </div>
         )}
         {loading&&<div style={{textAlign:"center",color:C.textDim,padding:40}}>Loading map…</div>}
-        <div ref={mapRef} style={{width:"100%",height:500,borderRadius:12,border:"1px solid "+C.border,display:loading?"none":"block"}}/>
+        <div ref={mapRef} style={{width:"100%",height:"100%",minHeight:520,borderRadius:12,border:"1px solid "+C.border,display:loading?"none":"block"}}/>
         {!loading&&jobsWithLoc.length===0&&(
           <div style={{...card,textAlign:"center",color:C.textDim,padding:48}}>No jobs have locations set yet. Click a job in the missing list above to add one.</div>
         )}
@@ -1607,18 +1620,18 @@ function App() {
                   <div style={{flex:1,minWidth:0}}>
                     <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",marginBottom:act.notes?6:0}}>
                       <span style={{fontWeight:700,color:C.textHi,cursor:"pointer"}}
-                        onClick={()=>{setSA(act.accId);setSC(act.conId);setView("contact");}}>
+                        onClick={()=>navTo("contact",{accId:act.accId,conId:act.conId})}>
                         {act.conName}
                       </span>
                       <span style={{color:C.textDim,fontSize:12}}>at</span>
                       <span style={{color:C.gold,fontSize:12,fontWeight:600,cursor:"pointer"}}
-                        onClick={()=>{setSA(act.accId);setView("account");setAccTab("contacts");}}>
+                        onClick={()=>navTo("account",{accId:act.accId,accTab:"contacts"})}>
                         {act.accName}
                       </span>
                       {tag(TIER_COLORS[act.accTier],"T"+act.accTier)}
                       {act.jobName&&(
                         <span style={{...pill(C.textDim),fontSize:11,padding:"1px 7px",cursor:"pointer"}}
-                          onClick={()=>{setSA(act.accId);setSJ(act.jobId);setView("job");}}>
+                          onClick={()=>navTo("job",{accId:act.accId,jobId:act.jobId})}>
                           {act.jobName}
                         </span>
                       )}
@@ -1681,7 +1694,7 @@ function App() {
           const lp=j.proposals.length>0?j.proposals[j.proposals.length-1]:null;
           return (
             <div key={j.id+j.accId} style={{...card,marginBottom:8,cursor:"pointer",padding:"13px 18px"}}
-              onClick={()=>{setSA(j.accId);setSJ(j.id);setView("job");}}
+              onClick={()=>navTo("job",{accId:j.accId,jobId:j.id})}
               onMouseEnter={e=>e.currentTarget.style.borderColor=sc+"80"}
               onMouseLeave={e=>e.currentTarget.style.borderColor=C.border}>
               <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:16}}>
@@ -1749,7 +1762,7 @@ function App() {
           </div>
         </div>
 
-        {/* -- Weekly BD Report + General Activity Log -- */}
+        {/* -- Weekly BD Report + General Outreach Log -- */}
         <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:14,padding:"18px 22px",marginBottom:22}}>
           <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:10,marginBottom:16}}>
             <div>
@@ -1778,7 +1791,7 @@ function App() {
             <div>
               <div style={{display:"flex",gap:8,marginBottom:14}}>
                 {reportFormat==="copy"&&(
-                  <button onClick={copyReport} style={{...btn(null,reportCopied?C.green:C.blue,reportCopied?C.green+"40":C.border2),fontSize:12,padding:"5px 14px",transition:"all 0.2s"}}>
+                  <button onClick={copyReport} style={{...btn(null,reportCopied?C.green:C.blue,reportCopied?C.green+"40":C.border2),fontSize:12,padding:"5px 14px"}}>
                     {reportCopied?"Copied!":"Copy to Clipboard"}
                   </button>
                 )}
@@ -1798,14 +1811,14 @@ function App() {
           )}
 
           {!weeklyReport&&!reportLoading&&(
-            <div style={{color:C.textDim,fontSize:13,paddingTop:4}}>Generate your weekly BD report - covers account activity, prospecting outreach, pipeline decisions, overdue follow-ups, and recommended priorities for next week. Choose Copy and Email or Print / PDF format above.</div>
+            <div style={{color:C.textDim,fontSize:13,paddingTop:4}}>Generate your weekly BD report - covers account activity, prospecting outreach, pipeline decisions, overdue follow-ups, and recommended priorities for next week.</div>
           )}
 
           <div style={{marginTop:20,borderTop:`1px solid ${C.border}`,paddingTop:16}}>
             <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
               <div>
                 <div style={{fontWeight:700,fontSize:14,color:C.textHi}}>General Outreach Log</div>
-                <div style={{fontSize:12,color:C.textDim,marginTop:2}}>Prospecting not tied to a specific account</div>
+                <div style={{fontSize:12,color:C.textDim,marginTop:2}}>LinkedIn blasts, events, cold calls not tied to a specific account</div>
               </div>
               <button onClick={()=>setShowGenLog(s=>!s)} style={{...btn(null,C.blue,C.border2),fontSize:12,padding:"5px 12px"}}>{showGenLog?"Cancel":"+ Log Activity"}</button>
             </div>
@@ -1815,21 +1828,21 @@ function App() {
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr auto auto",gap:10,alignItems:"end"}}>
                   <div>
                     <div style={{fontSize:11,color:C.textDim,marginBottom:4}}>Type</div>
-                    <select value={genLogForm.type} onChange={e=>setGenLogForm(f=>({...f,type:e.target.value}))} style={{...inputStyle,width:"100%"}}>
+                    <select value={genLogForm.type} onChange={e=>setGenLogForm(f=>({...f,type:e.target.value}))} style={{...inp,width:"100%"}}>
                       {["LinkedIn","Cold Email","Networking Event","Trade Show","Cold Call","Referral Outreach","Other"].map(t=>(<option key={t}>{t}</option>))}
                     </select>
                   </div>
                   <div>
                     <div style={{fontSize:11,color:C.textDim,marginBottom:4}}>Notes</div>
-                    <input value={genLogForm.notes} onChange={e=>setGenLogForm(f=>({...f,notes:e.target.value}))} placeholder="e.g. LinkedIn requests to home builders in Scottsdale" style={{...inputStyle,width:"100%"}}/>
+                    <input value={genLogForm.notes} onChange={e=>setGenLogForm(f=>({...f,notes:e.target.value}))} placeholder="e.g. LinkedIn requests to home builders in Scottsdale" style={{...inp,width:"100%"}}/>
                   </div>
                   <div>
                     <div style={{fontSize:11,color:C.textDim,marginBottom:4}}># Contacts</div>
-                    <input type="number" min="1" value={genLogForm.count} onChange={e=>setGenLogForm(f=>({...f,count:e.target.value}))} style={{...inputStyle,width:70}}/>
+                    <input type="number" min="1" value={genLogForm.count} onChange={e=>setGenLogForm(f=>({...f,count:e.target.value}))} style={{...inp,width:70}}/>
                   </div>
                   <div>
                     <div style={{fontSize:11,color:C.textDim,marginBottom:4}}>Date</div>
-                    <input type="date" value={genLogForm.date} onChange={e=>setGenLogForm(f=>({...f,date:e.target.value}))} style={{...inputStyle}}/>
+                    <input type="date" value={genLogForm.date} onChange={e=>setGenLogForm(f=>({...f,date:e.target.value}))} style={{...inp}}/>
                   </div>
                 </div>
                 <div style={{marginTop:12}}>
@@ -1839,7 +1852,7 @@ function App() {
             )}
 
             {(data.generalActivities||[]).length===0&&!showGenLog&&(
-              <div style={{fontSize:13,color:C.textDim}}>No general outreach logged yet. Track LinkedIn blasts, events, cold emails, and other prospecting not tied to a specific account.</div>
+              <div style={{fontSize:13,color:C.textDim}}>No general outreach logged. Track LinkedIn blasts, events, and cold outreach here - anything not tied to a specific account.</div>
             )}
             <div style={{display:"flex",flexDirection:"column",gap:8,maxHeight:300,overflowY:"auto"}}>
               {(data.generalActivities||[]).slice(0,30).map(a=>(
@@ -1847,7 +1860,7 @@ function App() {
                   <span style={{...pill(C.blue),fontSize:11,whiteSpace:"nowrap"}}>{a.type}</span>
                   <span style={{fontSize:13,color:C.textHi,flex:1}}>{a.notes}</span>
                   <span style={{fontSize:11,color:C.textDim,whiteSpace:"nowrap"}}>{a.count>1?a.count+" contacts · ":""}{a.date}</span>
-                  <button onClick={()=>delGeneralActivity(a.id)} style={{background:"none",border:"none",color:C.textDim,cursor:"pointer",fontSize:16,padding:"0 4px",lineHeight:1}}>x</button>
+                  <button onClick={e=>{e.stopPropagation();delGeneralActivity(a.id);}} style={{background:"none",border:"none",color:C.red,cursor:"pointer",fontSize:14,padding:"0 6px",lineHeight:1,borderRadius:4}} title="Delete">✕</button>
                 </div>
               ))}
             </div>
@@ -1858,7 +1871,7 @@ function App() {
           <div style={{background:"#fefce8",border:"1px solid #f59e0b60",borderRadius:12,padding:"14px 18px",marginBottom:20}}>
             <div style={{color:C.gold,fontWeight:700,marginBottom:10,fontSize:13}}>Overdue Follow-Ups ({alerts.length})</div>
             {alerts.map((al,i)=>(
-              <div key={i} style={{fontSize:13,color:"#52525b",marginBottom:4,cursor:"pointer"}} onClick={()=>{setSA(al.accId);setSC(al.conId);setView("contact");}}>
+              <div key={i} style={{fontSize:13,color:"#52525b",marginBottom:4,cursor:"pointer"}} onClick={()=>navTo("contact",{accId:al.accId,conId:al.conId})}>
                 {al.conName} ({al.accName}) -- {al.type} follow-up due {al.followUp}
               </div>
             ))}
@@ -1869,6 +1882,10 @@ function App() {
           <div style={{marginBottom:24}}>
 
             {/* -- Row 1: Pipeline tiles -- */}
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
+              <div style={{fontFamily:C.sans,fontSize:11,color:C.textDim,textTransform:"uppercase",letterSpacing:"0.07em"}}>Pipeline</div>
+              <div style={{fontSize:11,color:C.textDim}}>Won &amp; Lost: 12-month rolling · Active jobs: all</div>
+            </div>
             <div style={{display:"flex",gap:10,marginBottom:14,flexWrap:"wrap"}}>
               {[
                 {label:"Total Bid",  val:fmt$(Math.round(totalBidVal)), color:C.textHi, border:C.border,    always:true, statusKey:null},
@@ -1997,7 +2014,7 @@ function App() {
                 <span style={lbl}>Tier {tier} -- {TIER_LABELS[tier]}</span>
                 {tag(tc,accs.length)}
               </div>
-              <div style={{display:"grid",gridTemplateColumns:tier===1?"1fr 1fr":tier===2?"1fr 1fr 1fr":"1fr 1fr 1fr 1fr",gap:14,paddingLeft:tier===1?"13%":tier===2?"6%":0,paddingRight:tier===1?"13%":tier===2?"6%":0}}>
+              <div style={{display:"grid",gridTemplateColumns:tier===1?"1fr 1fr 1fr":tier===2?"1fr 1fr 1fr":"1fr 1fr 1fr 1fr",gap:14}}>
                 {accs.map(acc=>{
                   const lastAct=acc.contacts.flatMap(c=>c.activities).sort((a,b)=>new Date(b.date)-new Date(a.date))[0];
                   const ds=lastAct?daysSince(lastAct.date):null;
@@ -2005,7 +2022,7 @@ function App() {
                   const ps=pipeSummary(acc);
                   return (
                     <div key={acc.id}
-                      onClick={()=>{setSA(acc.id);setView("account");setAccTab("contacts");}}
+                      onClick={()=>navTo("account",{accId:acc.id,accTab:"contacts"})}
                       style={{...card,cursor:"pointer",padding:16,marginBottom:0}}
                       onMouseEnter={e=>e.currentTarget.style.borderColor=tc+"70"}
                       onMouseLeave={e=>e.currentTarget.style.borderColor=C.border}>
@@ -2074,7 +2091,7 @@ function App() {
           const ps=pipeSummary(acc);
           return (
             <div key={acc.id} style={{...card,display:"flex",alignItems:"center",justifyContent:"space-between",cursor:"pointer"}}
-              onClick={()=>{setSA(acc.id);setView("account");setAccTab("contacts");}}
+              onClick={()=>navTo("account",{accId:acc.id,accTab:"contacts"})}
               onMouseEnter={e=>e.currentTarget.style.borderColor=C.border2} onMouseLeave={e=>e.currentTarget.style.borderColor=C.border}>
               <div style={{display:"flex",alignItems:"center",gap:14}}>
                 {tag(TIER_COLORS[acc.tier],"T"+acc.tier)}
@@ -2176,7 +2193,7 @@ function App() {
               const hasOD=con.activities.some(a=>a.followUp&&isOverdue(a.followUp));
               return (
                 <div key={con.id} style={{...card,display:"flex",alignItems:"center",justifyContent:"space-between",cursor:"pointer"}}
-                  onClick={()=>{setSC(con.id);setView("contact");}}
+                  onClick={()=>navTo("contact",{conId:con.id})}
                   onMouseEnter={e=>e.currentTarget.style.borderColor=C.border2} onMouseLeave={e=>e.currentTarget.style.borderColor=C.border}>
                   <div style={{display:"flex",alignItems:"center",gap:14}}>
                     <div style={{width:38,height:38,borderRadius:"50%",background:"#e8e4f0",display:"flex",alignItems:"center",justifyContent:"center",color:C.purple,flexShrink:0,fontSize:14,fontWeight:700,letterSpacing:"-0.02em"}}>{con.name.trim().split(" ").map(w=>w[0]).slice(0,2).join("").toUpperCase()}</div>
@@ -2209,7 +2226,7 @@ function App() {
               const sc=STATUS_COLORS[job.status];const lp=job.proposals[job.proposals.length-1];
               return (
                 <div key={job.id} style={{...card,cursor:"pointer"}}
-                  onClick={()=>{setSJ(job.id);setView("job");}}
+                  onClick={()=>navTo("job",{jobId:job.id})}
                   onMouseEnter={e=>e.currentTarget.style.borderColor=sc+"60"} onMouseLeave={e=>e.currentTarget.style.borderColor=C.border}>
                   <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
                     <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
