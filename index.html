@@ -401,11 +401,13 @@ function DupReviewStep({dupPairs, decisions, onDecide, onBack, onCommit, totalNe
 function App() {
   const [data,    setData]    = useState(null);
   const [view,    setView]    = useState("dash");
+  const [backStack, setBackStack] = useState([]);
   const [selAcc,  setSA]      = useState(null);
   const [selCon,  setSC]      = useState(null);
   const [selJob,  setSJ]      = useState(null);
   const [accTab,  setAccTab]  = useState("contacts");
   const [dashTab, setDashTab] = useState("pyramid");
+  const [statusFilter, setStatusFilter] = useState(null);
   const [mktF,    setMktF]    = useState([]);
   const [modal,   setModal]   = useState(null);
   const [form,    setForm]    = useState({});
@@ -433,6 +435,25 @@ function App() {
   useEffect(()=>{if(data)saveData(data);},[data]);
 
   if(!data) return <div style={{background:C.bg,minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",color:C.textLo,fontFamily:C.sans,fontSize:18}}>Loading SalesOS...</div>;
+
+  const navTo = (newView, opts={}) => {
+    setBackStack(s => [...s, {view, selAcc, selCon, selJob, accTab}]);
+    if(opts.accId !== undefined) setSA(opts.accId);
+    if(opts.conId !== undefined) setSC(opts.conId);
+    if(opts.jobId !== undefined) setSJ(opts.jobId);
+    if(opts.accTab !== undefined) setAccTab(opts.accTab);
+    setView(newView);
+  };
+  const navBack = () => {
+    setBackStack(s => {
+      if(!s.length) return s;
+      const prev = s[s.length-1];
+      setSA(prev.selAcc); setSC(prev.selCon); setSJ(prev.selJob);
+      setAccTab(prev.accTab || "contacts");
+      setView(prev.view);
+      return s.slice(0,-1);
+    });
+  };
 
   const upd = fn => setData(prev => fn(cloneData(prev)));
   const ff  = k  => e => setForm(f=>({...f,[k]:e.target.value}));
@@ -1234,6 +1255,9 @@ function App() {
 
   const Crumb = ({items}) => (
     <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:26}}>
+      {backStack.length>0&&(
+        <button onClick={navBack} style={{...btn(null,C.blue,C.border2),padding:"5px 12px",fontSize:12,marginRight:4}}>← Back</button>
+      )}
       {items.map((item,i)=>(
         <span key={i} style={{display:"flex",alignItems:"center",gap:10}}>
           {i>0&&<span style={{color:C.border2}}>/</span>}
@@ -1320,28 +1344,27 @@ function App() {
   const MapView = ({data,setSA,setSJ,setView}) => {
     const mapRef = React.useRef(null);
     const mapInstance = React.useRef(null);
-    const [selected, setSelected] = React.useState(null);
+    const geocacheRef = React.useRef({});
     const [loading, setLoading] = React.useState(true);
-    const [noLocation, setNoLocation] = React.useState(0);
+    const [showMissingList, setShowMissingList] = React.useState(false);
 
-    // Gather all active jobs with locations
+    // Gather all active jobs with/without locations
     const jobsWithLoc = [];
+    const jobsMissingLoc = [];
     data.accounts.forEach(acc => {
-      acc.jobs.filter(j=>j.location&&j.location.trim()&&j.status!=="Lost").forEach(j=>{
-        jobsWithLoc.push({...j, accId:acc.id, accName:acc.name, accTier:acc.tier});
+      acc.jobs.filter(j=>j.status!=="Lost").forEach(j=>{
+        if(j.location&&j.location.trim()) jobsWithLoc.push({...j, accId:acc.id, accName:acc.name, accTier:acc.tier});
+        else jobsMissingLoc.push({...j, accId:acc.id, accName:acc.name, accTier:acc.tier});
       });
     });
-    const noLocCount = data.accounts.reduce((n,acc)=>n+acc.jobs.filter(j=>(!j.location||!j.location.trim())&&j.status!=="Lost").length,0);
 
     React.useEffect(()=>{
-      // Load Leaflet CSS
       if(!document.getElementById("leaflet-css")){
         const link=document.createElement("link");
         link.id="leaflet-css"; link.rel="stylesheet";
         link.href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
         document.head.appendChild(link);
       }
-      // Load Leaflet JS
       const loadLeaflet = () => new Promise((res,rej)=>{
         if(window.L){res(window.L);return;}
         const s=document.createElement("script");
@@ -1359,25 +1382,46 @@ function App() {
           attribution:"© OpenStreetMap contributors", maxZoom:18
         }).addTo(map);
 
-        // Geocode and add markers
+        // Geocode with caching - group by unique location to minimize API calls
+        const locationGroups = {};
         jobsWithLoc.forEach(j=>{
-          const query = encodeURIComponent(j.location+", AZ, USA");
-          fetch("https://nominatim.openstreetmap.org/search?format=json&q="+query+"&limit=1")
-            .then(r=>r.json())
-            .then(results=>{
-              if(!results||!results[0]) return;
-              const {lat,lon} = results[0];
-              const sc = STATUS_COLORS[j.status]||"#6b7280";
-              const icon = L.divIcon({
-                html: "<div style=\"width:14px;height:14px;border-radius:50%;background:"+sc+";border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,0.5)\"></div>",
-                className:"",iconSize:[14,14],iconAnchor:[7,7]
-              });
-              const marker = L.marker([lat,lon],{icon}).addTo(map);
-              marker.bindPopup("<div style=\"font-family:sans-serif;min-width:160px\"><b style=\"color:#111\">"+j.name+"</b><br/><span style=\"color:#666;font-size:12px\">"+j.accName+"</span><br/><span style=\"color:"+sc+";font-size:11px;font-weight:600\">"+j.status+"</span><br/><br/><button onclick=\"window._mapJobClick('"+j.accId+"','"+j.id+"')\" style=\"background:#e8c547;border:none;padding:4px 10px;border-radius:4px;cursor:pointer;font-weight:700;font-size:12px\">Open Job →</button></div>");
-            }).catch(()=>{});
+          const key = j.location.trim().toLowerCase();
+          if(!locationGroups[key]) locationGroups[key] = {location:j.location, jobs:[]};
+          locationGroups[key].jobs.push(j);
         });
 
-        // Global click handler for popup buttons
+        const addMarkers = (lat, lon, jobs) => {
+          jobs.forEach((j,idx)=>{
+            const sc = STATUS_COLORS[j.status]||"#6b7280";
+            // Slightly offset jobs at same location so pins don't stack
+            const jitter = idx===0 ? 0 : idx*0.002;
+            const icon = L.divIcon({
+              html: "<div style=\"width:14px;height:14px;border-radius:50%;background:"+sc+";border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,0.4)\"></div>",
+              className:"",iconSize:[14,14],iconAnchor:[7,7]
+            });
+            const marker = L.marker([parseFloat(lat)+jitter, parseFloat(lon)+jitter],{icon}).addTo(map);
+            marker.bindPopup("<div style=\"font-family:sans-serif;min-width:180px;padding:4px\"><b style=\"color:#111;font-size:14px\">"+j.name+"</b><br/><span style=\"color:#555;font-size:12px\">"+j.accName+"</span><br/><span style=\"color:"+sc+";font-size:11px;font-weight:700\">"+j.status+"</span>"+(j.dueDate?"<br/><span style=\"color:#888;font-size:11px\">Due: "+j.dueDate+"</span>":"")+"<br/><br/><button onclick=\"window._mapJobClick('"+j.accId+"','"+j.id+"')\" style=\"background:#3a7fd4;color:#fff;border:none;padding:5px 12px;border-radius:4px;cursor:pointer;font-weight:700;font-size:12px;width:100%\">Open Job →</button></div>");
+          });
+        };
+
+        // Process each unique location with caching
+        Object.entries(locationGroups).forEach(([key, group])=>{
+          if(geocacheRef.current[key]){
+            const {lat,lon} = geocacheRef.current[key];
+            addMarkers(lat, lon, group.jobs);
+          } else {
+            const query = encodeURIComponent(group.location+", AZ, USA");
+            fetch("https://nominatim.openstreetmap.org/search?format=json&q="+query+"&limit=1")
+              .then(r=>r.json())
+              .then(results=>{
+                if(!results||!results[0]) return;
+                const {lat,lon} = results[0];
+                geocacheRef.current[key] = {lat,lon};
+                addMarkers(lat, lon, group.jobs);
+              }).catch(()=>{});
+          }
+        });
+
         window._mapJobClick = (accId,jobId) => {
           setSA(accId); setSJ(jobId); setView("job");
         };
@@ -1391,22 +1435,47 @@ function App() {
 
     return (
       <div>
-        <div style={{display:"flex",alignItems:"center",gap:16,marginBottom:14,flexWrap:"wrap"}}>
-          <div style={{fontSize:13,color:C.textDim}}>{jobsWithLoc.length} jobs with locations</div>
-          {noLocCount>0&&<div style={{fontSize:12,color:C.amber}}>⚠ {noLocCount} jobs missing location</div>}
+        <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:14,flexWrap:"wrap"}}>
+          <div style={{fontSize:13,color:C.textDim}}>{jobsWithLoc.length} jobs plotted</div>
+          {jobsMissingLoc.length>0&&(
+            <button onClick={()=>setShowMissingList(s=>!s)}
+              style={{...btn(null,C.amber,"#d9770630"),fontSize:12,padding:"4px 10px"}}>
+              ⚠ {jobsMissingLoc.length} missing location {showMissingList?"▲":"▼"}
+            </button>
+          )}
           <div style={{display:"flex",gap:8,flexWrap:"wrap",marginLeft:"auto"}}>
-            {Object.entries(STATUS_COLORS).filter(([s])=>s!=="Lost").map(([s,c])=>(
+            {Object.entries(STATUS_COLORS).filter(([s])=>s!=="Lost").map(([s,col])=>(
               <span key={s} style={{display:"flex",alignItems:"center",gap:4,fontSize:11,color:C.textDim}}>
-                <span style={{width:10,height:10,borderRadius:"50%",background:c,display:"inline-block"}}/>
+                <span style={{width:10,height:10,borderRadius:"50%",background:col,display:"inline-block"}}/>
                 {s}
               </span>
             ))}
           </div>
         </div>
+        {showMissingList&&jobsMissingLoc.length>0&&(
+          <div style={{background:"#fffbeb",border:"1px solid #d97706",borderRadius:10,padding:14,marginBottom:14}}>
+            <div style={{fontWeight:700,color:C.amber,fontSize:13,marginBottom:10}}>Jobs missing a location — click to add one:</div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+              {jobsMissingLoc.map(j=>(
+                <div key={j.id+j.accId}
+                  onClick={()=>{setSA(j.accId);setSJ(j.id);setView("job");}}
+                  style={{background:"#fff",border:"1px solid #fcd34d",borderRadius:8,padding:"8px 12px",cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center"}}
+                  onMouseEnter={e=>e.currentTarget.style.borderColor="#d97706"}
+                  onMouseLeave={e=>e.currentTarget.style.borderColor="#fcd34d"}>
+                  <div>
+                    <div style={{fontWeight:700,color:C.textHi,fontSize:13}}>{j.name}</div>
+                    <div style={{fontSize:11,color:C.textDim}}>{j.accName}</div>
+                  </div>
+                  <span style={{...pill(STATUS_COLORS[j.status]||C.textDim),fontSize:10}}>→</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
         {loading&&<div style={{textAlign:"center",color:C.textDim,padding:40}}>Loading map…</div>}
-        <div ref={mapRef} style={{width:"100%",height:520,borderRadius:12,border:"1px solid "+C.border,display:loading?"none":"block"}}/>
+        <div ref={mapRef} style={{width:"100%",height:500,borderRadius:12,border:"1px solid "+C.border,display:loading?"none":"block"}}/>
         {!loading&&jobsWithLoc.length===0&&(
-          <div style={{...card,textAlign:"center",color:C.textDim,padding:48}}>No jobs have locations set. Add a location to your jobs to see them on the map.</div>
+          <div style={{...card,textAlign:"center",color:C.textDim,padding:48}}>No jobs have locations set yet. Click a job in the missing list above to add one.</div>
         )}
       </div>
     );
@@ -1511,10 +1580,10 @@ function App() {
     );
   };
 
-  const JobListView = ({jobSort,inWindow,jVal,setSA,setSJ,setView,data}) => {
+  const JobListView = ({jobSort,inWindow,jVal,setSA,setSJ,setView,data,statusFilter,setStatusFilter}) => {
     const STATUS_ORDER={"Active Pursuit":0,"Proposal Pending":1,"Budget / Budgetary Only":2,"On Hold":3,"Won":4,"Lost":5};
     const flatJobs=data.accounts.flatMap(acc=>
-      acc.jobs.filter(j=>inWindow(j)&&j.status!=="Lost").map(j=>{
+      acc.jobs.filter(j=>inWindow(j)&&j.status!=="Lost"&&(!statusFilter||j.status===statusFilter)).map(j=>{
         const linkedActs=acc.contacts.flatMap(c=>c.activities.filter(a=>a.jobId===j.id)).sort((a,b)=>new Date(b.date)-new Date(a.date));
         const linkedCons=acc.contacts.filter(c=>c.activities.some(a=>a.jobId===j.id));
         return {...j,accId:acc.id,accName:acc.name,accTier:acc.tier,linkedAct:linkedActs[0]||null,linkedCons};
@@ -1534,13 +1603,19 @@ function App() {
       }
       return 0;
     });
-    if(sorted.length===0) return <div style={{...card,color:C.textDim,textAlign:"center",padding:48,fontSize:13}}>No jobs in the last 12 months.</div>;
+    if(sorted.length===0) return (
+      <div>
+        {statusFilter&&<div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14}}><span style={{...pill(STATUS_COLORS[statusFilter]||C.textDim),fontSize:12}}>Filtered: {statusFilter}</span><button onClick={()=>setStatusFilter(null)} style={{...btn(null,C.textLo,C.border2),padding:"3px 10px",fontSize:12}}>✕ Clear</button></div>}
+        <div style={{...card,color:C.textDim,textAlign:"center",padding:48,fontSize:13}}>No jobs found.</div>
+      </div>
+    );
     const noDates=sorted.filter(j=>!j.dueDate).length;
     const today=new Date();
     return (
       <div>
+        {statusFilter&&<div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14}}><span style={{...pill(STATUS_COLORS[statusFilter]||C.textDim),fontSize:12}}>Filtered: {statusFilter}</span><button onClick={()=>setStatusFilter(null)} style={{...btn(null,C.textLo,C.border2),padding:"3px 10px",fontSize:12}}>✕ Clear filter</button></div>}
         <div style={{fontSize:12,color:C.textDim,marginBottom:14}}>
-          {sorted.length} jobs in the last 12 months
+          {sorted.length} jobs{statusFilter?" matching filter":" in the last 12 months"}
           {noDates>0&&jobSort==="due"&&<span style={{color:C.amber,marginLeft:8}}>{noDates} missing due date</span>}
         </div>
         {sorted.map(j=>{
@@ -1698,20 +1773,26 @@ function App() {
             {/* -- Row 1: Pipeline tiles -- */}
             <div style={{display:"flex",gap:10,marginBottom:14,flexWrap:"wrap"}}>
               {[
-                {label:"Total Bid",  val:fmt$(Math.round(totalBidVal)), color:C.textHi, border:C.border,    always:true},
-                {label:"Won",        val:fmt$(Math.round(wonBidVal)),   color:C.green,  border:C.green,     val2:allJobs.filter(j=>j.status==="Won").length+" jobs"},
-                {label:"Active",     val:fmt$(Math.round(activeBidVal)),color:C.blue,   border:C.blue,      val2:allJobs.filter(j=>j.status==="Active Pursuit").length+" jobs"},
-                {label:"Pending",    val:fmt$(Math.round(pendingBidVal)),color:"#c8980a",border:"#c8980a",  val2:allJobs.filter(j=>j.status==="Proposal Pending").length+" jobs"},
-                {label:"Budgetary",  val:fmt$(Math.round(budgetBidVal)),color:C.textLo, border:C.border,    val2:allJobs.filter(j=>j.status==="Budget / Budgetary Only").length+" jobs"},
-                {label:"On Hold",    val:fmt$(Math.round(holdBidVal)),  color:C.purple, border:C.purple,    val2:allJobs.filter(j=>j.status==="On Hold").length+" jobs"},
-                {label:"Lost",       val:fmt$(Math.round(lostBidVal)),  color:C.red,    border:C.red,       val2:allJobs.filter(j=>j.status==="Lost").length+" jobs"},
-              ].filter(t=>t.always||(parseCur(t.val)>0)).map(t=>(
-                <div key={t.label} style={{background:C.surface,border:`1px solid ${t.border}30`,borderTop:`3px solid ${t.border}60`,borderRadius:10,padding:"11px 18px",display:"flex",flexDirection:"column",alignItems:"center",minWidth:100,flex:"1 1 auto"}}>
+                {label:"Total Bid",  val:fmt$(Math.round(totalBidVal)), color:C.textHi, border:C.border,    always:true, statusKey:null},
+                {label:"Won",        val:fmt$(Math.round(wonBidVal)),   color:C.green,  border:C.green,     val2:allJobs.filter(j=>j.status==="Won").length+" jobs", statusKey:"Won"},
+                {label:"Active",     val:fmt$(Math.round(activeBidVal)),color:C.blue,   border:C.blue,      val2:allJobs.filter(j=>j.status==="Active Pursuit").length+" jobs", statusKey:"Active Pursuit"},
+                {label:"Pending",    val:fmt$(Math.round(pendingBidVal)),color:"#c8980a",border:"#c8980a",  val2:allJobs.filter(j=>j.status==="Proposal Pending").length+" jobs", statusKey:"Proposal Pending"},
+                {label:"Budgetary",  val:fmt$(Math.round(budgetBidVal)),color:C.textLo, border:C.border,    val2:allJobs.filter(j=>j.status==="Budget / Budgetary Only").length+" jobs", statusKey:"Budget / Budgetary Only"},
+                {label:"On Hold",    val:fmt$(Math.round(holdBidVal)),  color:C.purple, border:C.purple,    val2:allJobs.filter(j=>j.status==="On Hold").length+" jobs", statusKey:"On Hold"},
+                {label:"Lost",       val:fmt$(Math.round(lostBidVal)),  color:C.red,    border:C.red,       val2:allJobs.filter(j=>j.status==="Lost").length+" jobs", statusKey:"Lost"},
+              ].filter(t=>t.always||(parseCur(t.val)>0)).map(t=>{
+                const isActive = statusFilter===t.statusKey && t.statusKey!==null;
+                return (
+                <div key={t.label}
+                  onClick={()=>{ if(t.statusKey){setStatusFilter(isActive?null:t.statusKey);setDashTab("jobs");} }}
+                  style={{background:isActive?t.border+"18":C.surface,border:`1px solid ${isActive?t.border+"80":t.border+"30"}`,borderTop:`3px solid ${t.border}60`,borderRadius:10,padding:"11px 18px",display:"flex",flexDirection:"column",alignItems:"center",minWidth:100,flex:"1 1 auto",cursor:t.statusKey?"pointer":"default",transition:"all 0.15s"}}
+                  title={t.statusKey?"Click to filter job list by "+t.label:""}>
                   <div style={{fontWeight:700,fontSize:18,color:t.color,lineHeight:1}}>{t.val||"--"}</div>
                   {t.val2&&<div style={{fontSize:11,color:t.color,opacity:.6,marginTop:3}}>{t.val2}</div>}
-                  <div style={{fontSize:10,color:C.textDim,marginTop:4,textTransform:"uppercase",letterSpacing:"0.07em"}}>{t.label}</div>
+                  <div style={{fontSize:10,color:C.textDim,marginTop:4,textTransform:"uppercase",letterSpacing:"0.07em"}}>{t.label}{t.statusKey?" ↗":""}</div>
                 </div>
-              ))}
+                );
+              })}
               {winRate!==null&&<div style={{background:C.surface,border:`1px solid ${C.blue}30`,borderTop:`3px solid ${C.blue}60`,borderRadius:10,padding:"11px 18px",display:"flex",flexDirection:"column",alignItems:"center",minWidth:100,flex:"1 1 auto"}}>
                 <div style={{fontWeight:700,fontSize:18,color:C.blue,lineHeight:1}}>{winRate}%</div>
                 <div style={{fontSize:11,color:C.blue,opacity:.6,marginTop:3}}>{decidedJobs.filter(j=>j.status==="Won").length} of {decidedJobs.length}</div>
@@ -1923,7 +2004,7 @@ function App() {
           );
         })}
 
-        {dashTab==="jobs"&&<JobListView jobSort={jobSort} inWindow={inWindow} jVal={jVal} setSA={setSA} setSJ={setSJ} setView={setView} data={data}/>}
+        {dashTab==="jobs"&&<JobListView jobSort={jobSort} inWindow={inWindow} jVal={jVal} setSA={setSA} setSJ={setSJ} setView={setView} data={data} statusFilter={statusFilter} setStatusFilter={setStatusFilter}/>}
         {dashTab==="calendar"&&<CalendarView data={data} setSA={setSA} setSJ={setSJ} setView={setView}/>}
         {dashTab==="map"&&<MapView data={data} setSA={setSA} setSJ={setSJ} setView={setView}/>}
         {dashTab==="feed"&&<ActivityFeedView feedFilter={feedFilter} data={data} setSA={setSA} setSC={setSC} setSJ={setSJ} setView={setView} setAccTab={setAccTab}/>}
@@ -2186,7 +2267,7 @@ function App() {
   return (
     <div style={{background:C.bg,minHeight:"100vh",color:C.text,fontFamily:C.sans,fontSize:14}}>
       <div style={{background:C.surface,borderBottom:`1px solid ${C.border}`,padding:"0 32px",display:"flex",alignItems:"center",justifyContent:"space-between",height:58}}>
-        <div style={{fontFamily:C.serif,fontSize:22,color:C.textHi,letterSpacing:"-0.02em",cursor:"pointer"}} onClick={()=>setView("dash")}>
+        <div style={{fontFamily:C.serif,fontSize:22,color:C.textHi,letterSpacing:"-0.02em",cursor:"pointer"}} onClick={()=>{setView("dash");setBackStack([]);}}>
           Sales<span style={{color:C.gold}}>OS</span>
         </div>
         <div style={{display:"flex",alignItems:"center",gap:10}}>
