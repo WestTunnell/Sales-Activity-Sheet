@@ -459,25 +459,6 @@ function App() {
     });
   };
 
-  const navTo = (newView, opts={}) => {
-    setBackStack(s=>[...s,{view,selAcc,selCon,selJob,accTab}]);
-    if(opts.accId!==undefined) setSA(opts.accId);
-    if(opts.conId!==undefined) setSC(opts.conId);
-    if(opts.jobId!==undefined) setSJ(opts.jobId);
-    if(opts.accTab!==undefined) setAccTab(opts.accTab);
-    setView(newView);
-  };
-  const navBack = () => {
-    setBackStack(s=>{
-      if(!s.length) return s;
-      const prev=s[s.length-1];
-      setSA(prev.selAcc); setSC(prev.selCon); setSJ(prev.selJob);
-      setAccTab(prev.accTab||"contacts");
-      setView(prev.view);
-      return s.slice(0,-1);
-    });
-  };
-
   const upd = fn => setData(prev => fn(cloneData(prev)));
   const ff  = k  => e => setForm(f=>({...f,[k]:e.target.value}));
   const fv  = (k,v) => setForm(f=>({...f,[k]:v}));
@@ -696,7 +677,6 @@ function App() {
         const acts=acc.contacts.flatMap(c=>c.activities).sort((a,b)=>new Date(b.date)-new Date(a.date));
         return(!acts[0]||Math.floor((Date.now()-new Date(acts[0].date))/86400000)>=21);
       }).map(a=>a.name);
-      const wonWeek=data.accounts.flatMap(a=>a.jobs).filter(j=>j.status==="Won"&&inWeek(j.dueDate));
       const signals={
         weekOf:mon.toLocaleDateString("en-US",{month:"long",day:"numeric",year:"numeric"}),
         weekEnd:sun.toLocaleDateString("en-US",{month:"long",day:"numeric",year:"numeric"}),
@@ -708,7 +688,6 @@ function App() {
         decisionsDueSoon:decisionsDue,
         overdueFollowUps:overdueItems.slice(0,8),
         coldTier1:coldT1,
-        wonThisWeek:wonWeek.map(j=>j.name),
         totalAccounts:data.accounts.length,
         totalActiveJobs:data.accounts.flatMap(a=>a.jobs).filter(j=>["Active Pursuit","Proposal Pending"].includes(j.status)).length,
       };
@@ -716,14 +695,14 @@ function App() {
         method:"POST",headers:{"Content-Type":"application/json"},
         body:JSON.stringify({
           model:"claude-sonnet-4-20250514",max_tokens:2000,
-          system:"You are writing a weekly BD report for West at Fairco Landscape Development, a landscape construction company operating in AZ, CA, and NV since 1978. Write a professional, direct report that a BD manager would send to ownership on Friday. Use real names and numbers from the data. Format with clear section headers using === on their own line before each section title. Sections: WEEK IN REVIEW, ACCOUNT ACTIVITY, PROSPECTING & OUTREACH, PIPELINE WATCH, NEEDS ATTENTION, PRIORITIES FOR NEXT WEEK. Be specific and actionable. No filler. Short paragraphs over bullet lists.",
-          messages:[{role:"user",content:"Generate my weekly BD report: "+JSON.stringify(signals)}]
+          system:"You are writing a weekly BD report for West at Fairco Landscape Development, a landscape construction company in AZ, CA, and NV since 1978. Write a professional, direct report a BD manager would send to ownership on Friday. Use real names and numbers. Format with === on its own line before each section header. Sections: WEEK IN REVIEW, ACCOUNT ACTIVITY, PROSPECTING & OUTREACH, PIPELINE WATCH, NEEDS ATTENTION, PRIORITIES FOR NEXT WEEK. Be specific and actionable. Short paragraphs over bullet lists.",
+          messages:[{role:"user",content:"Generate weekly BD report: "+JSON.stringify(signals)}]
         })
       });
       const rd=await res.json();
       const txt=(rd.content||[]).filter(b=>b.type==="text").map(b=>b.text).join("");
       setWeeklyReport(txt||"No report content returned.");
-    } catch(e){setWeeklyReport("Could not generate report. Check your connection and try again.");}
+    } catch(e){setWeeklyReport("Could not generate report. Check connection and try again.");}
     setReportLoading(false);
   };
 
@@ -736,19 +715,21 @@ function App() {
     if(!weeklyReport)return;
     const {mon,sun}=getWeekBounds();
     const w=window.open("","_blank");
-    const escaped=weeklyReport.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
-    w.document.write("<!DOCTYPE html><html><head><title>Fairco Weekly BD Report</title>"
+    const esc=weeklyReport.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+    const html="<!DOCTYPE html><html><head><title>Fairco Weekly BD Report</title>"
       +"<style>body{font-family:Georgia,serif;max-width:800px;margin:48px auto;color:#1a1820;font-size:15px;line-height:1.75;}"
-      +"h1{font-size:26px;border-bottom:3px solid #c8980a;padding-bottom:10px;margin-bottom:4px;}"
+      +"h1{font-size:26px;border-bottom:3px solid #c8980a;padding-bottom:10px;}"
       +"h2{font-size:13px;color:#6b7280;font-weight:400;margin:0 0 32px;}"
       +"pre{white-space:pre-wrap;font-family:Georgia,serif;font-size:14px;line-height:1.85;}"
-      +"@media print{body{margin:24px;}button{display:none;}}</style></head><body>"
+      +"@media print{body{margin:24px;}}</style></head><body>"
       +"<h1>Fairco Landscape Development</h1>"
-      +"<h2>Weekly BD Report &mdash; Week of "+mon.toLocaleDateString("en-US",{month:"long",day:"numeric"})
-      +" &ndash; "+sun.toLocaleDateString("en-US",{month:"long",day:"numeric",year:"numeric"})+"</h2>"
-      +"<pre>"+escaped+"</pre>"
-      +"<script>window.onload=function(){window.print();}<\/script>"
-      +"</body></html>");
+      +"<h2>Weekly BD Report &mdash; Week of "
+      +mon.toLocaleDateString("en-US",{month:"long",day:"numeric"})
+      +" &ndash; "+sun.toLocaleDateString("en-US",{month:"long",day:"numeric",year:"numeric"})
+      +"</h2><pre>"+esc+"</pre>"
+      +"<"+"script>window.onload=function(){window.print();}<"+"/script>"
+      +"</body></html>";
+    w.document.write(html);
     w.document.close();
   };
 
@@ -1473,7 +1454,7 @@ function App() {
           });
         };
 
-        // Process locations - cached ones instant, new ones staggered 120ms apart
+        // Process locations - cached instant, new ones staggered 120ms
         let delay=0;
         Object.entries(locationGroups).forEach(([key, group])=>{
           if(geocacheRef.current[key]){
@@ -1491,12 +1472,12 @@ function App() {
                   addMarkers(lat, lon, group.jobs);
                 }).catch(()=>{});
             }, delay);
-            delay+=120; // stagger to avoid rate limiting
+            delay+=120;
           }
         });
 
         window._mapJobClick = (accId,jobId) => {
-          navTo("job",{accId,jobId});
+          setSA(accId); setSJ(jobId); setView("job");
         };
       }).catch(()=>setLoading(false));
 
@@ -1770,139 +1751,95 @@ function App() {
 
         {/* -- Weekly BD Report + General Activity Log -- */}
         <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:14,padding:"18px 22px",marginBottom:22}}>
-
-          {/* Header row */}
           <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:10,marginBottom:16}}>
             <div>
               <div style={{fontFamily:C.serif,fontSize:17,color:C.textHi}}>Weekly BD Report</div>
-              <div style={{fontSize:12,color:C.textDim,marginTop:2}}>{(()=>{const {mon,sun}=getWeekBounds();return mon.toLocaleDateString("en-US",{month:"short",day:"numeric"})+" – "+sun.toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"});})()}</div>
+              <div style={{fontSize:12,color:C.textDim,marginTop:2}}>{(()=>{const {mon,sun}=getWeekBounds();return mon.toLocaleDateString("en-US",{month:"short",day:"numeric"})+" - "+sun.toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"});})()}</div>
             </div>
             <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
-              {/* Format toggle */}
               <div style={{display:"flex",border:`1px solid ${C.border2}`,borderRadius:8,overflow:"hidden",fontSize:12}}>
-                <button onClick={()=>setReportFormat("copy")}
-                  style={{padding:"5px 12px",background:reportFormat==="copy"?C.blue:"transparent",color:reportFormat==="copy"?"#fff":C.textDim,border:"none",cursor:"pointer",fontFamily:C.sans,transition:"all 0.15s"}}>
-                  ✉ Copy & Email
-                </button>
-                <button onClick={()=>setReportFormat("pdf")}
-                  style={{padding:"5px 12px",background:reportFormat==="pdf"?C.blue:"transparent",color:reportFormat==="pdf"?"#fff":C.textDim,border:"none",cursor:"pointer",fontFamily:C.sans,transition:"all 0.15s"}}>
-                  🖨 Print / PDF
-                </button>
+                <button onClick={()=>setReportFormat("copy")} style={{padding:"5px 12px",background:reportFormat==="copy"?C.blue:"transparent",color:reportFormat==="copy"?"#fff":C.textDim,border:"none",cursor:"pointer",fontFamily:C.sans}}>Copy and Email</button>
+                <button onClick={()=>setReportFormat("pdf")} style={{padding:"5px 12px",background:reportFormat==="pdf"?C.blue:"transparent",color:reportFormat==="pdf"?"#fff":C.textDim,border:"none",cursor:"pointer",fontFamily:C.sans}}>Print / PDF</button>
               </div>
-              <button onClick={generateWeeklyReport} disabled={reportLoading}
-                style={{...btn(reportLoading?C.border:C.gold,reportLoading?C.textDim:"#0a0d13"),minWidth:140,justifyContent:"center",opacity:reportLoading?0.6:1}}>
-                {reportLoading?"Generating…":weeklyReport?"Regenerate Report":"Generate Report"}
+              <button onClick={generateWeeklyReport} disabled={reportLoading} style={{...btn(reportLoading?C.border:C.gold,reportLoading?C.textDim:"#0a0d13"),minWidth:140,justifyContent:"center",opacity:reportLoading?0.6:1}}>
+                {reportLoading?"Generating...":weeklyReport?"Regenerate Report":"Generate Report"}
               </button>
             </div>
           </div>
 
-          {/* Generating spinner */}
           {reportLoading&&(
             <div style={{display:"flex",alignItems:"center",gap:12,padding:"18px 0",color:C.textDim,fontSize:13}}>
               <div style={{width:18,height:18,border:`2px solid ${C.gold}`,borderTopColor:"transparent",borderRadius:"50%",animation:"spin 0.8s linear infinite"}}/>
-              Analyzing this week's activity and pipeline…
+              Analyzing this week's activity and pipeline...
             </div>
           )}
 
-          {/* Report content */}
           {weeklyReport&&!reportLoading&&(
             <div>
-              {/* Action buttons */}
               <div style={{display:"flex",gap:8,marginBottom:14}}>
                 {reportFormat==="copy"&&(
-                  <button onClick={copyReport}
-                    style={{...btn(null,reportCopied?C.green:C.blue,reportCopied?C.green+"40":C.border2),fontSize:12,padding:"5px 14px",transition:"all 0.2s"}}>
-                    {reportCopied?"✓ Copied!":"📋 Copy to Clipboard"}
+                  <button onClick={copyReport} style={{...btn(null,reportCopied?C.green:C.blue,reportCopied?C.green+"40":C.border2),fontSize:12,padding:"5px 14px",transition:"all 0.2s"}}>
+                    {reportCopied?"Copied!":"Copy to Clipboard"}
                   </button>
                 )}
                 {reportFormat==="pdf"&&(
-                  <button onClick={printReport}
-                    style={{...btn(null,C.blue,C.border2),fontSize:12,padding:"5px 14px"}}>
-                    🖨 Open Print / Save PDF
-                  </button>
+                  <button onClick={printReport} style={{...btn(null,C.blue,C.border2),fontSize:12,padding:"5px 14px"}}>Open Print / Save PDF</button>
                 )}
-                <button onClick={()=>setWeeklyReport(null)}
-                  style={{...btn(null,C.textLo,C.border2),fontSize:12,padding:"5px 14px"}}>
-                  ✕ Clear
-                </button>
+                <button onClick={()=>setWeeklyReport(null)} style={{...btn(null,C.textLo,C.border2),fontSize:12,padding:"5px 14px"}}>Clear</button>
               </div>
-              {/* Report text */}
-              <div style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:10,padding:"18px 20px",
-                fontFamily:"Georgia,serif",fontSize:14,lineHeight:1.85,color:C.textHi,whiteSpace:"pre-wrap",
-                maxHeight:480,overflowY:"auto"}}>
-                {weeklyReport.split("
-").map((line,i)=>{
+              <div style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:10,padding:"18px 20px",fontFamily:"Georgia,serif",fontSize:14,lineHeight:1.85,color:C.textHi,whiteSpace:"pre-wrap",maxHeight:480,overflowY:"auto"}}>
+                {weeklyReport.split("\n").map((line,i)=>{
                   if(line.trim()==="===") return <hr key={i} style={{border:"none",borderTop:`1px solid ${C.border}`,margin:"16px 0"}}/>;
                   if(/^[A-Z &]+$/.test(line.trim())&&line.trim().length>3) return <div key={i} style={{fontFamily:C.sans,fontWeight:700,fontSize:12,color:C.gold,textTransform:"uppercase",letterSpacing:"0.1em",marginTop:20,marginBottom:6}}>{line}</div>;
-                  return <span key={i}>{line}{"
-"}</span>;
+                  return <span key={i}>{line}{"\n"}</span>;
                 })}
               </div>
             </div>
           )}
 
-          {/* Empty state */}
           {!weeklyReport&&!reportLoading&&(
-            <div style={{color:C.textDim,fontSize:13,paddingTop:4}}>
-              Generate your weekly BD report — covers account activity, prospecting outreach, pipeline decisions, overdue follow-ups, and recommended priorities for next week. Choose Copy & Email to paste into an email, or Print / PDF to save a formatted document.
-            </div>
+            <div style={{color:C.textDim,fontSize:13,paddingTop:4}}>Generate your weekly BD report - covers account activity, prospecting outreach, pipeline decisions, overdue follow-ups, and recommended priorities for next week. Choose Copy and Email or Print / PDF format above.</div>
           )}
 
-          {/* General Activity Log */}
           <div style={{marginTop:20,borderTop:`1px solid ${C.border}`,paddingTop:16}}>
             <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
               <div>
                 <div style={{fontWeight:700,fontSize:14,color:C.textHi}}>General Outreach Log</div>
-                <div style={{fontSize:12,color:C.textDim,marginTop:2}}>Prospecting activity not tied to a specific account</div>
+                <div style={{fontSize:12,color:C.textDim,marginTop:2}}>Prospecting not tied to a specific account</div>
               </div>
-              <button onClick={()=>setShowGenLog(s=>!s)}
-                style={{...btn(null,C.blue,C.border2),fontSize:12,padding:"5px 12px"}}>
-                {showGenLog?"Cancel":"+ Log Activity"}
-              </button>
+              <button onClick={()=>setShowGenLog(s=>!s)} style={{...btn(null,C.blue,C.border2),fontSize:12,padding:"5px 12px"}}>{showGenLog?"Cancel":"+ Log Activity"}</button>
             </div>
 
-            {/* Add form */}
             {showGenLog&&(
               <div style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:10,padding:"14px 16px",marginBottom:14}}>
-                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr auto auto",gap:10,alignItems:"end",flexWrap:"wrap"}}>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr auto auto",gap:10,alignItems:"end"}}>
                   <div>
                     <div style={{fontSize:11,color:C.textDim,marginBottom:4}}>Type</div>
-                    <select value={genLogForm.type} onChange={e=>setGenLogForm(f=>({...f,type:e.target.value}))}
-                      style={{...inputStyle,width:"100%"}}>
-                      {["LinkedIn","Cold Email","Networking Event","Trade Show","Cold Call","Referral Outreach","Other"].map(t=>(
-                        <option key={t}>{t}</option>
-                      ))}
+                    <select value={genLogForm.type} onChange={e=>setGenLogForm(f=>({...f,type:e.target.value}))} style={{...inputStyle,width:"100%"}}>
+                      {["LinkedIn","Cold Email","Networking Event","Trade Show","Cold Call","Referral Outreach","Other"].map(t=>(<option key={t}>{t}</option>))}
                     </select>
                   </div>
                   <div>
                     <div style={{fontSize:11,color:C.textDim,marginBottom:4}}>Notes</div>
-                    <input value={genLogForm.notes} onChange={e=>setGenLogForm(f=>({...f,notes:e.target.value}))}
-                      placeholder="e.g. Sent LinkedIn requests to home builders in Scottsdale"
-                      style={{...inputStyle,width:"100%"}}/>
+                    <input value={genLogForm.notes} onChange={e=>setGenLogForm(f=>({...f,notes:e.target.value}))} placeholder="e.g. LinkedIn requests to home builders in Scottsdale" style={{...inputStyle,width:"100%"}}/>
                   </div>
                   <div>
                     <div style={{fontSize:11,color:C.textDim,marginBottom:4}}># Contacts</div>
-                    <input type="number" min="1" value={genLogForm.count} onChange={e=>setGenLogForm(f=>({...f,count:e.target.value}))}
-                      style={{...inputStyle,width:70}}/>
+                    <input type="number" min="1" value={genLogForm.count} onChange={e=>setGenLogForm(f=>({...f,count:e.target.value}))} style={{...inputStyle,width:70}}/>
                   </div>
                   <div>
                     <div style={{fontSize:11,color:C.textDim,marginBottom:4}}>Date</div>
-                    <input type="date" value={genLogForm.date} onChange={e=>setGenLogForm(f=>({...f,date:e.target.value}))}
-                      style={{...inputStyle}}/>
+                    <input type="date" value={genLogForm.date} onChange={e=>setGenLogForm(f=>({...f,date:e.target.value}))} style={{...inputStyle}}/>
                   </div>
                 </div>
-                <div style={{marginTop:12,display:"flex",gap:8}}>
-                  <button onClick={saveGeneralActivity} disabled={!genLogForm.notes.trim()}
-                    style={{...btn(null,C.green,C.green+"40"),fontSize:13,padding:"6px 16px",opacity:genLogForm.notes.trim()?1:0.5}}>
-                    Save Activity
-                  </button>
+                <div style={{marginTop:12}}>
+                  <button onClick={saveGeneralActivity} disabled={!genLogForm.notes.trim()} style={{...btn(null,C.green,C.green+"40"),fontSize:13,padding:"6px 16px",opacity:genLogForm.notes.trim()?1:0.5}}>Save Activity</button>
                 </div>
               </div>
             )}
 
-            {/* Activity list */}
             {(data.generalActivities||[]).length===0&&!showGenLog&&(
-              <div style={{fontSize:13,color:C.textDim}}>No general outreach logged yet. Use this to track LinkedIn blasts, events, cold emails, and other prospecting not tied to a specific account.</div>
+              <div style={{fontSize:13,color:C.textDim}}>No general outreach logged yet. Track LinkedIn blasts, events, cold emails, and other prospecting not tied to a specific account.</div>
             )}
             <div style={{display:"flex",flexDirection:"column",gap:8,maxHeight:300,overflowY:"auto"}}>
               {(data.generalActivities||[]).slice(0,30).map(a=>(
@@ -1910,8 +1847,7 @@ function App() {
                   <span style={{...pill(C.blue),fontSize:11,whiteSpace:"nowrap"}}>{a.type}</span>
                   <span style={{fontSize:13,color:C.textHi,flex:1}}>{a.notes}</span>
                   <span style={{fontSize:11,color:C.textDim,whiteSpace:"nowrap"}}>{a.count>1?a.count+" contacts · ":""}{a.date}</span>
-                  <button onClick={()=>delGeneralActivity(a.id)}
-                    style={{background:"none",border:"none",color:C.textDim,cursor:"pointer",fontSize:16,padding:"0 4px",lineHeight:1}}>×</button>
+                  <button onClick={()=>delGeneralActivity(a.id)} style={{background:"none",border:"none",color:C.textDim,cursor:"pointer",fontSize:16,padding:"0 4px",lineHeight:1}}>x</button>
                 </div>
               ))}
             </div>
