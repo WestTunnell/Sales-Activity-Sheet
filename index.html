@@ -418,6 +418,7 @@ function App() {
   const [dupDecs, setDupDecs] = useState({});
   const [hRow,    setHRow]    = useState(6);
   const [pendingFile,setPF]   = useState(null);
+  const [exportFlash,setExFlash] = useState(false);
   const [mergeConPairs,setMergeConPairs] = useState([]);
   const [mergeConDecs, setMergeConDecs]  = useState({});
   const [searchQ,     setSearchQ]        = useState("");
@@ -535,6 +536,19 @@ function App() {
   };
 
   const closeModal = () => {setModal(null);setForm({});};
+
+  const exportData = () => {
+    try {
+      const payload = {exportDate:new Date().toISOString().slice(0,10),...data};
+      const blob = new Blob([JSON.stringify(payload,null,2)],{type:"application/json"});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href=url; a.download="salesos-"+new Date().toISOString().slice(0,10)+".json";
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      setExFlash(true); setTimeout(()=>setExFlash(false),2000);
+    } catch(e){alert("Export failed: "+e.message);}
+  };
 
   const saveAcc = isNew => {
     const b={name:form.name||"New Account",industry:form.industry||"",markets:form.markets||[],tier:parseInt(form.tier)||2,dealSize:form.dealSize||"",notes:form.notes||"",pros:(form.pros||"").split("\n").filter(Boolean),cons:(form.cons||"").split("\n").filter(Boolean)};
@@ -2011,6 +2025,7 @@ function App() {
           {alerts.length>0&&<span style={{...pill(C.amber),display:"inline-flex",alignItems:"center",gap:5,cursor:"pointer"}} onClick={()=>setView("dash")}>Overdue: {alerts.length}</span>}
           {winRate!==null&&<span style={{fontSize:12,color:C.textDim,borderLeft:`1px solid ${C.border}`,paddingLeft:10}}>{winRate}% win rate</span>}
           <span style={{color:C.textDim,fontSize:13,borderLeft:`1px solid ${C.border}`,paddingLeft:10}}>{userName}</span>
+          <button style={{...btn(null,exportFlash?C.green:C.blue,exportFlash?C.green+"60":C.border2),minWidth:80,justifyContent:"center",transition:"all 0.3s"}} onClick={exportData}>{exportFlash?"✓ Saved!":"↓ Export"}</button>
           <button style={btn(null,C.textLo,C.border2)} onClick={()=>{setForm({});setModal("settings");}}>Settings</button>
         </div>
       </div>
