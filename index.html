@@ -427,8 +427,12 @@ function App() {
   const [listSort,    setListSort]       = useState("tier");
   const [jobSort,     setJobSort]         = useState("due");
   const [feedFilter,  setFeedFilter]      = useState("all");
-  const [brief,       setBrief]          = useState(null);
-  const [briefLoading,setBriefLoading]   = useState(false);
+  const [weeklyReport,  setWeeklyReport]  = useState(null);
+  const [reportLoading, setReportLoading] = useState(false);
+  const [reportFormat,  setReportFormat]  = useState("copy");
+  const [reportCopied,  setReportCopied]  = useState(false);
+  const [showGenLog,    setShowGenLog]    = useState(false);
+  const [genLogForm,    setGenLogForm]    = useState({type:"LinkedIn",notes:"",date:new Date().toISOString().slice(0,10),count:1});
   const fileRef = useRef();
 
   useEffect(()=>{loadData().then(setData);},[]);
@@ -450,6 +454,25 @@ function App() {
       const prev = s[s.length-1];
       setSA(prev.selAcc); setSC(prev.selCon); setSJ(prev.selJob);
       setAccTab(prev.accTab || "contacts");
+      setView(prev.view);
+      return s.slice(0,-1);
+    });
+  };
+
+  const navTo = (newView, opts={}) => {
+    setBackStack(s=>[...s,{view,selAcc,selCon,selJob,accTab}]);
+    if(opts.accId!==undefined) setSA(opts.accId);
+    if(opts.conId!==undefined) setSC(opts.conId);
+    if(opts.jobId!==undefined) setSJ(opts.jobId);
+    if(opts.accTab!==undefined) setAccTab(opts.accTab);
+    setView(newView);
+  };
+  const navBack = () => {
+    setBackStack(s=>{
+      if(!s.length) return s;
+      const prev=s[s.length-1];
+      setSA(prev.selAcc); setSC(prev.selCon); setSJ(prev.selJob);
+      setAccTab(prev.accTab||"contacts");
       setView(prev.view);
       return s.slice(0,-1);
     });
@@ -626,64 +649,109 @@ function App() {
     setModal("quickLog");
   };
 
-  const generateBrief = async () => {
-    setBriefLoading(true);
-    setBrief(null);
-    try {
-      const today = new Date();
-      const signals = [];
-
-      data.accounts.forEach(acc=>acc.contacts.forEach(con=>con.activities.forEach(act=>{
-        if(act.followUp && isOverdue(act.followUp))
-          signals.push({type:"overdue_followup",acc:acc.name,con:con.name,role:con.role||"Unknown",actType:act.type,due:act.followUp,notes:act.notes||""});
-      })));
-
-      data.accounts.filter(a=>a.tier===1).forEach(acc=>{
-        const acts=acc.contacts.flatMap(c=>c.activities).sort((a,b)=>new Date(b.date)-new Date(a.date));
-        const ds=acts[0]?Math.floor((Date.now()-new Date(acts[0].date))/86400000):999;
-        if(ds>=21) signals.push({type:"cold_tier1",acc:acc.name,daysSince:ds,contacts:acc.contacts.map(c=>({name:c.name,role:c.role||"Unknown",strength:c.relStrength||0})),notes:acc.notes||""});
-      });
-
-      data.accounts.forEach(acc=>acc.jobs.filter(j=>j.dueDate&&!["Won","Lost"].includes(j.status)).forEach(j=>{
-        const diff=Math.ceil((new Date(j.dueDate)-today)/86400000);
-        if(diff>=0&&diff<=14) signals.push({type:"decision_soon",acc:acc.name,job:j.name,status:j.status,value:fmtVal(j.estimatedValue)||(j.proposals.length>0?j.proposals[j.proposals.length-1].amount:""),dueDate:j.dueDate,daysLeft:diff,contacts:acc.contacts.map(c=>({name:c.name,role:c.role||"Unknown"})),jobNotes:j.notes||""});
-      }));
-
-      data.accounts.filter(a=>(a.tier===1||a.tier===2)&&a.jobs.length===0&&a.contacts.length>0).forEach(acc=>{
-        signals.push({type:"no_jobs",acc:acc.name,tier:acc.tier,contacts:acc.contacts.map(c=>({name:c.name,role:c.role||"Unknown"})),notes:acc.notes||""});
-      });
-
-      data.accounts.forEach(acc=>acc.jobs.filter(j=>j.status==="Active Pursuit"||j.status==="Proposal Pending").forEach(j=>{
-        const linked=acc.contacts.flatMap(c=>c.activities.filter(a=>a.jobId===j.id)).sort((a,b)=>new Date(b.date)-new Date(a.date));
-        const ds=linked[0]?Math.floor((Date.now()-new Date(linked[0].date))/86400000):999;
-        if(ds>=30) signals.push({type:"stale_active_job",acc:acc.name,job:j.name,status:j.status,daysSince:ds===999?"never":ds,contacts:acc.contacts.map(c=>({name:c.name,role:c.role||"Unknown"}))});
-      }));
-
-      if(!signals.length) {
-        setBrief([{priority:"low",action:"Your pipeline looks clear today.",detail:"No overdue items, cold accounts, or urgent decisions detected. Good time to log new outreach or scout new prospects.",accName:null,conName:null,jobName:null}]);
-        setBriefLoading(false);
-        return;
-      }
-
-      const systemPrompt = "You are a senior BD advisor for a construction and design firm. Analyze pipeline signals and return a JSON array of 4-8 prioritized recommended actions. Each item must have: priority (critical/high/normal), action (one short sentence max 12 words), detail (2-3 sentences of specific tactical advice using real names and roles), accName (string or null), conName (string or null), jobName (string or null). Return raw JSON array only, no markdown, no explanation.";
-      const userPrompt = "Signals: " + JSON.stringify(signals);
-
-      const res = await fetch("https://api.anthropic.com/v1/messages", {
-        method:"POST",
-        headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:1200,system:systemPrompt,messages:[{role:"user",content:userPrompt}]})
-      });
-      const rd = await res.json();
-      const txt = (rd.content||[]).filter(b=>b.type==="text").map(b=>b.text).join("");
-      const clean = txt.replace(/^```json\s*/,"").replace(/\s*```$/,"").trim();
-      const items = JSON.parse(clean);
-      setBrief(Array.isArray(items)?items:[]);
-    } catch(err) {
-      console.error("Brief error:",err);
-      setBrief([{priority:"normal",action:"Could not generate briefing.",detail:"There was an error connecting to the AI. Check your connection and try again.",accName:null,conName:null,jobName:null}]);
-    }
-    setBriefLoading(false);
+  const getWeekBounds = () => {
+    const now=new Date(), day=now.getDay();
+    const mon=new Date(now); mon.setDate(now.getDate()-(day===0?6:day-1)); mon.setHours(0,0,0,0);
+    const sun=new Date(mon); sun.setDate(mon.getDate()+6); sun.setHours(23,59,59,999);
+    return {mon,sun};
   };
+
+  const saveGeneralActivity = () => {
+    upd(d=>{
+      if(!d.generalActivities) d.generalActivities=[];
+      d.generalActivities.unshift({id:uid(),type:genLogForm.type,notes:genLogForm.notes,
+        date:genLogForm.date,count:parseInt(genLogForm.count)||1,createdAt:new Date().toISOString()});
+      return d;
+    });
+    setGenLogForm({type:"LinkedIn",notes:"",date:new Date().toISOString().slice(0,10),count:1});
+    setShowGenLog(false);
+  };
+
+  const delGeneralActivity = id => upd(d=>{
+    d.generalActivities=(d.generalActivities||[]).filter(a=>a.id!==id);
+    return d;
+  });
+
+  const generateWeeklyReport = async () => {
+    setReportLoading(true); setWeeklyReport(null);
+    try {
+      const {mon,sun}=getWeekBounds();
+      const inWeek=s=>{if(!s)return false;const d=new Date(s);return d>=mon&&d<=sun;};
+      const weekActs=[];
+      data.accounts.forEach(acc=>acc.contacts.forEach(con=>con.activities.forEach(act=>{
+        if(inWeek(act.date)) weekActs.push({...act,accName:acc.name,conName:con.name,tier:acc.tier});
+      })));
+      const genActs=(data.generalActivities||[]).filter(a=>inWeek(a.date));
+      const decisionsDue=[], overdueItems=[];
+      data.accounts.forEach(acc=>{
+        acc.jobs.filter(j=>!["Won","Lost"].includes(j.status)).forEach(j=>{
+          const diff=j.dueDate?Math.ceil((new Date(j.dueDate)-new Date())/86400000):null;
+          if(diff!==null&&diff>=0&&diff<=14) decisionsDue.push({job:j.name,acc:acc.name,dueDate:j.dueDate,status:j.status,daysLeft:diff});
+        });
+        acc.contacts.forEach(con=>con.activities.forEach(act=>{
+          if(act.followUp&&isOverdue(act.followUp)) overdueItems.push({acc:acc.name,con:con.name,type:act.type,due:act.followUp});
+        }));
+      });
+      const coldT1=data.accounts.filter(a=>a.tier===1).filter(acc=>{
+        const acts=acc.contacts.flatMap(c=>c.activities).sort((a,b)=>new Date(b.date)-new Date(a.date));
+        return(!acts[0]||Math.floor((Date.now()-new Date(acts[0].date))/86400000)>=21);
+      }).map(a=>a.name);
+      const wonWeek=data.accounts.flatMap(a=>a.jobs).filter(j=>j.status==="Won"&&inWeek(j.dueDate));
+      const signals={
+        weekOf:mon.toLocaleDateString("en-US",{month:"long",day:"numeric",year:"numeric"}),
+        weekEnd:sun.toLocaleDateString("en-US",{month:"long",day:"numeric",year:"numeric"}),
+        userName:data.settings&&data.settings.userName?data.settings.userName:"West",
+        accountActivityCount:weekActs.length,
+        activityBreakdown:weekActs.reduce((m,a)=>{m[a.type]=(m[a.type]||0)+1;return m;},{}),
+        accountsTouched:[...new Set(weekActs.map(a=>a.accName))],
+        generalActivities:genActs,
+        decisionsDueSoon:decisionsDue,
+        overdueFollowUps:overdueItems.slice(0,8),
+        coldTier1:coldT1,
+        wonThisWeek:wonWeek.map(j=>j.name),
+        totalAccounts:data.accounts.length,
+        totalActiveJobs:data.accounts.flatMap(a=>a.jobs).filter(j=>["Active Pursuit","Proposal Pending"].includes(j.status)).length,
+      };
+      const res=await fetch("https://api.anthropic.com/v1/messages",{
+        method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({
+          model:"claude-sonnet-4-20250514",max_tokens:2000,
+          system:"You are writing a weekly BD report for West at Fairco Landscape Development, a landscape construction company operating in AZ, CA, and NV since 1978. Write a professional, direct report that a BD manager would send to ownership on Friday. Use real names and numbers from the data. Format with clear section headers using === on their own line before each section title. Sections: WEEK IN REVIEW, ACCOUNT ACTIVITY, PROSPECTING & OUTREACH, PIPELINE WATCH, NEEDS ATTENTION, PRIORITIES FOR NEXT WEEK. Be specific and actionable. No filler. Short paragraphs over bullet lists.",
+          messages:[{role:"user",content:"Generate my weekly BD report: "+JSON.stringify(signals)}]
+        })
+      });
+      const rd=await res.json();
+      const txt=(rd.content||[]).filter(b=>b.type==="text").map(b=>b.text).join("");
+      setWeeklyReport(txt||"No report content returned.");
+    } catch(e){setWeeklyReport("Could not generate report. Check your connection and try again.");}
+    setReportLoading(false);
+  };
+
+  const copyReport=()=>{
+    if(!weeklyReport)return;
+    navigator.clipboard.writeText(weeklyReport).then(()=>{setReportCopied(true);setTimeout(()=>setReportCopied(false),2500);});
+  };
+
+  const printReport=()=>{
+    if(!weeklyReport)return;
+    const {mon,sun}=getWeekBounds();
+    const w=window.open("","_blank");
+    const escaped=weeklyReport.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+    w.document.write("<!DOCTYPE html><html><head><title>Fairco Weekly BD Report</title>"
+      +"<style>body{font-family:Georgia,serif;max-width:800px;margin:48px auto;color:#1a1820;font-size:15px;line-height:1.75;}"
+      +"h1{font-size:26px;border-bottom:3px solid #c8980a;padding-bottom:10px;margin-bottom:4px;}"
+      +"h2{font-size:13px;color:#6b7280;font-weight:400;margin:0 0 32px;}"
+      +"pre{white-space:pre-wrap;font-family:Georgia,serif;font-size:14px;line-height:1.85;}"
+      +"@media print{body{margin:24px;}button{display:none;}}</style></head><body>"
+      +"<h1>Fairco Landscape Development</h1>"
+      +"<h2>Weekly BD Report &mdash; Week of "+mon.toLocaleDateString("en-US",{month:"long",day:"numeric"})
+      +" &ndash; "+sun.toLocaleDateString("en-US",{month:"long",day:"numeric",year:"numeric"})+"</h2>"
+      +"<pre>"+escaped+"</pre>"
+      +"<script>window.onload=function(){window.print();}<\/script>"
+      +"</body></html>");
+    w.document.close();
+  };
+
 
     const openMergeContacts = () => {
     const acc = gAcc();
@@ -1376,8 +1444,9 @@ function App() {
       loadLeaflet().then(L=>{
         setLoading(false);
         if(!mapRef.current||mapInstance.current) return;
-        const map = L.map(mapRef.current).setView([33.4484,-112.0740],9);
+        const map = L.map(mapRef.current).setView([33.4484,-112.0740],8);
         mapInstance.current = map;
+        setTimeout(()=>map.invalidateSize(),150);
         L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{
           attribution:"© OpenStreetMap contributors", maxZoom:18
         }).addTo(map);
@@ -1404,26 +1473,30 @@ function App() {
           });
         };
 
-        // Process each unique location with caching
+        // Process locations - cached ones instant, new ones staggered 120ms apart
+        let delay=0;
         Object.entries(locationGroups).forEach(([key, group])=>{
           if(geocacheRef.current[key]){
             const {lat,lon} = geocacheRef.current[key];
             addMarkers(lat, lon, group.jobs);
           } else {
-            const query = encodeURIComponent(group.location+", AZ, USA");
-            fetch("https://nominatim.openstreetmap.org/search?format=json&q="+query+"&limit=1")
-              .then(r=>r.json())
-              .then(results=>{
-                if(!results||!results[0]) return;
-                const {lat,lon} = results[0];
-                geocacheRef.current[key] = {lat,lon};
-                addMarkers(lat, lon, group.jobs);
-              }).catch(()=>{});
+            setTimeout(()=>{
+              const query = encodeURIComponent(group.location+", AZ, USA");
+              fetch("https://nominatim.openstreetmap.org/search?format=json&q="+query+"&limit=1")
+                .then(r=>r.json())
+                .then(results=>{
+                  if(!results||!results[0]) return;
+                  const {lat,lon} = results[0];
+                  geocacheRef.current[key] = {lat,lon};
+                  addMarkers(lat, lon, group.jobs);
+                }).catch(()=>{});
+            }, delay);
+            delay+=120; // stagger to avoid rate limiting
           }
         });
 
         window._mapJobClick = (accId,jobId) => {
-          setSA(accId); setSJ(jobId); setView("job");
+          navTo("job",{accId,jobId});
         };
       }).catch(()=>setLoading(false));
 
@@ -1695,65 +1768,154 @@ function App() {
           </div>
         </div>
 
-        {/* -- Morning Brief Panel -- */}
+        {/* -- Weekly BD Report + General Activity Log -- */}
         <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:14,padding:"18px 22px",marginBottom:22}}>
-          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:brief&&brief.length?16:0}}>
+
+          {/* Header row */}
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:10,marginBottom:16}}>
             <div>
-              <div style={{fontFamily:C.serif,fontSize:17,color:C.textHi}}>Morning Brief</div>
-              <div style={{fontSize:12,color:C.textDim,marginTop:2}}>{new Date().toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric"})}</div>
+              <div style={{fontFamily:C.serif,fontSize:17,color:C.textHi}}>Weekly BD Report</div>
+              <div style={{fontSize:12,color:C.textDim,marginTop:2}}>{(()=>{const {mon,sun}=getWeekBounds();return mon.toLocaleDateString("en-US",{month:"short",day:"numeric"})+" – "+sun.toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"});})()}</div>
             </div>
-            <button
-              onClick={generateBrief}
-              disabled={briefLoading}
-              style={{...btn(briefLoading?C.border:C.gold,briefLoading?C.textDim:"#0a0d13"),minWidth:130,justifyContent:"center",opacity:briefLoading?0.6:1}}>
-              {briefLoading?"Generating...":brief?"Regenerate Brief":"Generate Brief"}
-            </button>
+            <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+              {/* Format toggle */}
+              <div style={{display:"flex",border:`1px solid ${C.border2}`,borderRadius:8,overflow:"hidden",fontSize:12}}>
+                <button onClick={()=>setReportFormat("copy")}
+                  style={{padding:"5px 12px",background:reportFormat==="copy"?C.blue:"transparent",color:reportFormat==="copy"?"#fff":C.textDim,border:"none",cursor:"pointer",fontFamily:C.sans,transition:"all 0.15s"}}>
+                  ✉ Copy & Email
+                </button>
+                <button onClick={()=>setReportFormat("pdf")}
+                  style={{padding:"5px 12px",background:reportFormat==="pdf"?C.blue:"transparent",color:reportFormat==="pdf"?"#fff":C.textDim,border:"none",cursor:"pointer",fontFamily:C.sans,transition:"all 0.15s"}}>
+                  🖨 Print / PDF
+                </button>
+              </div>
+              <button onClick={generateWeeklyReport} disabled={reportLoading}
+                style={{...btn(reportLoading?C.border:C.gold,reportLoading?C.textDim:"#0a0d13"),minWidth:140,justifyContent:"center",opacity:reportLoading?0.6:1}}>
+                {reportLoading?"Generating…":weeklyReport?"Regenerate Report":"Generate Report"}
+              </button>
+            </div>
           </div>
 
-          {briefLoading&&(
+          {/* Generating spinner */}
+          {reportLoading&&(
             <div style={{display:"flex",alignItems:"center",gap:12,padding:"18px 0",color:C.textDim,fontSize:13}}>
               <div style={{width:18,height:18,border:`2px solid ${C.gold}`,borderTopColor:"transparent",borderRadius:"50%",animation:"spin 0.8s linear infinite"}}/>
-              Analyzing your pipeline and relationships...
+              Analyzing this week's activity and pipeline…
             </div>
           )}
 
-          {brief&&!briefLoading&&(
-            <div style={{display:"flex",flexDirection:"column",gap:10}}>
-              {brief.map((item,i)=>{
-                const pc = item.priority==="critical"?C.red:item.priority==="high"?C.amber:C.blue;
-                const acc = item.accName ? data.accounts.find(a=>a.name===item.accName) : null;
-                const con = acc&&item.conName ? acc.contacts.find(c=>c.name===item.conName) : null;
-                const job = acc&&item.jobName ? acc.jobs.find(j=>j.name===item.jobName) : null;
-                return (
-                  <div key={i} style={{background:C.bg,border:`1px solid ${pc}30`,borderLeft:`3px solid ${pc}`,borderRadius:8,padding:"12px 14px"}}>
-                    <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:12}}>
-                      <div style={{flex:1}}>
-                        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:5}}>
-                          <span style={{...pill(pc),fontSize:10,padding:"1px 7px",textTransform:"capitalize"}}>{item.priority}</span>
-                          {acc&&<span style={{fontSize:12,color:C.textDim}}>{item.accName}</span>}
-                        </div>
-                        <div style={{fontWeight:700,color:C.textHi,fontSize:14,marginBottom:4}}>{item.action}</div>
-                        <div style={{fontSize:13,color:"#52525b",lineHeight:1.6}}>{item.detail}</div>
-                      </div>
-                      {acc&&(
-                        <div style={{display:"flex",gap:6,flexShrink:0,marginTop:2}}>
-                          {job&&<button onClick={()=>{setSA(acc.id);setSJ(job.id);setView("job");}} style={{...btn(null,C.blue,"#1e3a5a"),fontSize:12,padding:"4px 10px"}}>Job</button>}
-                          {con&&<button onClick={()=>{setSA(acc.id);setSC(con.id);setView("contact");}} style={{...btn(null,C.purple,"#2a1e3d"),fontSize:12,padding:"4px 10px"}}>Contact</button>}
-                          <button onClick={()=>{setSA(acc.id);setView("account");setAccTab("contacts");}} style={{...btn(null,C.textLo,C.border2),fontSize:12,padding:"4px 10px"}}>Account</button>
-                        </div>
-                      )}
-                    </div>
+          {/* Report content */}
+          {weeklyReport&&!reportLoading&&(
+            <div>
+              {/* Action buttons */}
+              <div style={{display:"flex",gap:8,marginBottom:14}}>
+                {reportFormat==="copy"&&(
+                  <button onClick={copyReport}
+                    style={{...btn(null,reportCopied?C.green:C.blue,reportCopied?C.green+"40":C.border2),fontSize:12,padding:"5px 14px",transition:"all 0.2s"}}>
+                    {reportCopied?"✓ Copied!":"📋 Copy to Clipboard"}
+                  </button>
+                )}
+                {reportFormat==="pdf"&&(
+                  <button onClick={printReport}
+                    style={{...btn(null,C.blue,C.border2),fontSize:12,padding:"5px 14px"}}>
+                    🖨 Open Print / Save PDF
+                  </button>
+                )}
+                <button onClick={()=>setWeeklyReport(null)}
+                  style={{...btn(null,C.textLo,C.border2),fontSize:12,padding:"5px 14px"}}>
+                  ✕ Clear
+                </button>
+              </div>
+              {/* Report text */}
+              <div style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:10,padding:"18px 20px",
+                fontFamily:"Georgia,serif",fontSize:14,lineHeight:1.85,color:C.textHi,whiteSpace:"pre-wrap",
+                maxHeight:480,overflowY:"auto"}}>
+                {weeklyReport.split("
+").map((line,i)=>{
+                  if(line.trim()==="===") return <hr key={i} style={{border:"none",borderTop:`1px solid ${C.border}`,margin:"16px 0"}}/>;
+                  if(/^[A-Z &]+$/.test(line.trim())&&line.trim().length>3) return <div key={i} style={{fontFamily:C.sans,fontWeight:700,fontSize:12,color:C.gold,textTransform:"uppercase",letterSpacing:"0.1em",marginTop:20,marginBottom:6}}>{line}</div>;
+                  return <span key={i}>{line}{"
+"}</span>;
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Empty state */}
+          {!weeklyReport&&!reportLoading&&(
+            <div style={{color:C.textDim,fontSize:13,paddingTop:4}}>
+              Generate your weekly BD report — covers account activity, prospecting outreach, pipeline decisions, overdue follow-ups, and recommended priorities for next week. Choose Copy & Email to paste into an email, or Print / PDF to save a formatted document.
+            </div>
+          )}
+
+          {/* General Activity Log */}
+          <div style={{marginTop:20,borderTop:`1px solid ${C.border}`,paddingTop:16}}>
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
+              <div>
+                <div style={{fontWeight:700,fontSize:14,color:C.textHi}}>General Outreach Log</div>
+                <div style={{fontSize:12,color:C.textDim,marginTop:2}}>Prospecting activity not tied to a specific account</div>
+              </div>
+              <button onClick={()=>setShowGenLog(s=>!s)}
+                style={{...btn(null,C.blue,C.border2),fontSize:12,padding:"5px 12px"}}>
+                {showGenLog?"Cancel":"+ Log Activity"}
+              </button>
+            </div>
+
+            {/* Add form */}
+            {showGenLog&&(
+              <div style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:10,padding:"14px 16px",marginBottom:14}}>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr auto auto",gap:10,alignItems:"end",flexWrap:"wrap"}}>
+                  <div>
+                    <div style={{fontSize:11,color:C.textDim,marginBottom:4}}>Type</div>
+                    <select value={genLogForm.type} onChange={e=>setGenLogForm(f=>({...f,type:e.target.value}))}
+                      style={{...inputStyle,width:"100%"}}>
+                      {["LinkedIn","Cold Email","Networking Event","Trade Show","Cold Call","Referral Outreach","Other"].map(t=>(
+                        <option key={t}>{t}</option>
+                      ))}
+                    </select>
                   </div>
-                );
-              })}
-            </div>
-          )}
+                  <div>
+                    <div style={{fontSize:11,color:C.textDim,marginBottom:4}}>Notes</div>
+                    <input value={genLogForm.notes} onChange={e=>setGenLogForm(f=>({...f,notes:e.target.value}))}
+                      placeholder="e.g. Sent LinkedIn requests to home builders in Scottsdale"
+                      style={{...inputStyle,width:"100%"}}/>
+                  </div>
+                  <div>
+                    <div style={{fontSize:11,color:C.textDim,marginBottom:4}}># Contacts</div>
+                    <input type="number" min="1" value={genLogForm.count} onChange={e=>setGenLogForm(f=>({...f,count:e.target.value}))}
+                      style={{...inputStyle,width:70}}/>
+                  </div>
+                  <div>
+                    <div style={{fontSize:11,color:C.textDim,marginBottom:4}}>Date</div>
+                    <input type="date" value={genLogForm.date} onChange={e=>setGenLogForm(f=>({...f,date:e.target.value}))}
+                      style={{...inputStyle}}/>
+                  </div>
+                </div>
+                <div style={{marginTop:12,display:"flex",gap:8}}>
+                  <button onClick={saveGeneralActivity} disabled={!genLogForm.notes.trim()}
+                    style={{...btn(null,C.green,C.green+"40"),fontSize:13,padding:"6px 16px",opacity:genLogForm.notes.trim()?1:0.5}}>
+                    Save Activity
+                  </button>
+                </div>
+              </div>
+            )}
 
-          {!brief&&!briefLoading&&(
-            <div style={{color:C.textDim,fontSize:13,paddingTop:10}}>
-              Click "Generate Brief" to get AI-powered recommended actions based on your pipeline, overdue items, and upcoming decisions.
+            {/* Activity list */}
+            {(data.generalActivities||[]).length===0&&!showGenLog&&(
+              <div style={{fontSize:13,color:C.textDim}}>No general outreach logged yet. Use this to track LinkedIn blasts, events, cold emails, and other prospecting not tied to a specific account.</div>
+            )}
+            <div style={{display:"flex",flexDirection:"column",gap:8,maxHeight:300,overflowY:"auto"}}>
+              {(data.generalActivities||[]).slice(0,30).map(a=>(
+                <div key={a.id} style={{display:"flex",alignItems:"center",gap:12,background:C.bg,border:`1px solid ${C.border}`,borderRadius:8,padding:"9px 14px"}}>
+                  <span style={{...pill(C.blue),fontSize:11,whiteSpace:"nowrap"}}>{a.type}</span>
+                  <span style={{fontSize:13,color:C.textHi,flex:1}}>{a.notes}</span>
+                  <span style={{fontSize:11,color:C.textDim,whiteSpace:"nowrap"}}>{a.count>1?a.count+" contacts · ":""}{a.date}</span>
+                  <button onClick={()=>delGeneralActivity(a.id)}
+                    style={{background:"none",border:"none",color:C.textDim,cursor:"pointer",fontSize:16,padding:"0 4px",lineHeight:1}}>×</button>
+                </div>
+              ))}
             </div>
-          )}
+          </div>
         </div>
 
         {alerts.length>0&&(
