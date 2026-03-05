@@ -29,8 +29,8 @@ const {useState,useEffect,useRef} = React;
 
 const STORAGE_KEY = "sales_os_v5";
 const DEFAULT_MARKETS = ["General Contractor","Construction Manager","Owner / Developer","Home Builder","Subcontractor","Design-Build","Healthcare","Industrial","Government / Public","Mixed-Use / Multifamily"];
-const JOB_STATUSES   = ["Active Pursuit","Proposal Pending","Won","Lost","On Hold","Budget / Budgetary Only"];
-const STATUS_COLORS  = {"Active Pursuit":"#7EB8F7","Proposal Pending":"#E8C547","Won":"#22c55e","Lost":"#ef4444","On Hold":"#9B8FD4","Budget / Budgetary Only":"#6b7280"};
+const JOB_STATUSES   = ["Active Pursuit","Proposal Pending","Won","Lost","Budget / Budgetary Only"];
+const STATUS_COLORS  = {"Active Pursuit":"#7EB8F7","Proposal Pending":"#E8C547","Won":"#22c55e","Lost":"#ef4444","Budget / Budgetary Only":"#6b7280"};
 const ACTIVITY_TYPES = ["Email","Proposal","Phone Call","Coffee","Lunch","Happy Hour","Market Event","Entertainment","Site Visit","LinkedIn Connection Request","LinkedIn Message","LinkedIn Engagement","Other"];
 const TIERS          = [1,2,3];
 const TIER_LABELS    = {1:"Priority",2:"Developing",3:"Long Game"};
@@ -118,6 +118,7 @@ async function loadData() {
       if (!d.settings.markets) d.settings.markets = [...DEFAULT_MARKETS];
       if (!d.generalActivities) d.generalActivities = [];
       d.accounts.forEach(a => {
+        if(a.jobs) a.jobs.forEach(j=>{if(j.status==="On Hold") j.status="Budget / Budgetary Only";});
         if (!a.jobs) a.jobs = [];
         if (!a.markets) a.markets = [];
         a.contacts.forEach(c => c.activities.forEach(act => { if (!("jobId" in act)) act.jobId = null; }));
@@ -185,8 +186,7 @@ function matchStatus(raw) {
   const s = raw.toLowerCase().trim();
   if (/^won$|awarded|award|selected/.test(s))           return "Won";
   if (/^lost$|no.?award|not.?select|no.?bid|declined/.test(s)) return "Lost";
-  if (/hold|pause|defer/.test(s))                       return "On Hold";
-  if (/budget|rom|feasib|prelim|study/.test(s))         return "Budget / Budgetary Only";
+    if (/budget|rom|feasib|prelim|study/.test(s))         return "Budget / Budgetary Only";
   if (/submit|sent|pending|under.?review/.test(s))      return "Proposal Pending";
   return JOB_STATUSES.find(j => j.toLowerCase().includes(s) || s.includes(j.toLowerCase())) || "Active Pursuit";
 }
@@ -399,6 +399,225 @@ function DupReviewStep({dupPairs, decisions, onDecide, onBack, onCommit, totalNe
   );
 }
 
+function ContactImportModal({data, upd, closeModal}) {
+  const [imgData,   setImgData]   = React.useState(null);
+  const [loading,   setLoading]   = React.useState(false);
+  const [extracted, setExtracted] = React.useState(null);
+  const [accChoice, setAccChoice] = React.useState(null);
+  const [sel,       setSel]       = React.useState({});
+  const [saved,     setSaved]     = React.useState(false);
+  const fileRef = React.useRef();
+
+  const matches = React.useMemo(function() {
+    if (!extracted || !extracted.company) return [];
+    return data.accounts
+      .map(function(a) { return {acc:a, score:nameSimilarity(a.name, extracted.company)}; })
+      .filter(function(x) { return x.score > 0.35; })
+      .sort(function(a,b) { return b.score - a.score; });
+  }, [extracted]);
+
+  React.useEffect(function() {
+    if (!extracted) return;
+    var top = matches[0];
+    setAccChoice(top && top.score >= 0.7 ? top.acc.id : "new");
+    var s = {};
+    (extracted.contacts || []).forEach(function(_, i) { s[i] = true; });
+    setSel(s);
+  }, [extracted]);
+
+  function handleFile(file) {
+    if (!file || !file.type.startsWith("image/")) return;
+    var reader = new FileReader();
+    reader.onload = function(e) { setImgData(e.target.result); };
+    reader.readAsDataURL(file);
+  }
+
+  async function extract() {
+    if (!imgData) return;
+    setLoading(true); setExtracted(null);
+    try {
+      var base64 = imgData.split(",")[1];
+      var mediaType = imgData.split(";")[0].split(":")[1];
+      var res = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {"Content-Type":"application/json"},
+        body: JSON.stringify({
+          model: "claude-sonnet-4-20250514",
+          max_tokens: 1500,
+          system: 'Extract company and contact info from this image. Return ONLY valid JSON with shape: {"company":"Name","contacts":[{"name":"","title":"","email":"","phone":"","notes":""}]}. Empty string for missing fields. No markdown, no explanation.',
+          messages: [{
+            role: "user",
+            content: [
+              {type:"image", source:{type:"base64", media_type:mediaType, data:base64}},
+              {type:"text", text:"Extract all contacts as JSON."}
+            ]
+          }]
+        })
+      });
+      var d = await res.json();
+      var txt = (d.content||[]).filter(function(b){return b.type==="text";}).map(function(b){return b.text;}).join("");
+      var parsed = JSON.parse(txt.replace(/```json|```/g,"").trim());
+      setExtracted(parsed);
+    } catch(err) {
+      setExtracted({company:"", contacts:[], error:"Could not read image. Try a clearer screenshot."});
+    }
+    setLoading(false);
+  }
+
+  function getDup(con) {
+    if (!accChoice || accChoice === "new") return null;
+    var acc = data.accounts.find(function(a) { return a.id === accChoice; });
+    if (!acc || !acc.contacts.length) return null;
+    var scored = acc.contacts.map(function(ex) { return {ex:ex, score:nameSimilarity(ex.name, con.name||"")}; });
+    var best = scored.sort(function(a,b){ return b.score-a.score; })[0];
+    if (!best) return null;
+    if (best.score > 0.85) return {type:"exact", name:best.ex.name};
+    if (best.score > 0.5)  return {type:"possible", name:best.ex.name, pct:Math.round(best.score*100)};
+    return null;
+  }
+
+  function save() {
+    var toAdd = (extracted.contacts||[]).filter(function(_,i){ return sel[i]; });
+    if (!toAdd.length) return;
+    upd(function(d) {
+      var acc;
+      if (accChoice === "new") {
+        acc = {id:uid(), name:extracted.company||"New Account", tier:2, markets:[], pros:[], contacts:[], jobs:[], notes:""};
+        d.accounts.push(acc);
+      } else {
+        acc = d.accounts.find(function(a){ return a.id === accChoice; });
+      }
+      if (!acc) return d;
+      toAdd.forEach(function(con) {
+        var exists = acc.contacts.some(function(ex){ return nameSimilarity(ex.name, con.name||"") > 0.85; });
+        if (!exists) {
+          acc.contacts.push({id:uid(), name:con.name||"", title:con.title||"", email:con.email||"", phone:con.phone||"", howMet:"", notes:con.notes||"", activities:[]});
+        }
+      });
+      return d;
+    });
+    setSaved(true);
+  }
+
+  var selCount = Object.values(sel).filter(Boolean).length;
+  var chosenAcc = accChoice && accChoice !== "new" ? data.accounts.find(function(a){return a.id===accChoice;}) : null;
+
+  if (saved) {
+    return (
+      <div style={{textAlign:"center", padding:"40px 20px"}}>
+        <div style={{fontSize:36, marginBottom:12}}>&#10003;</div>
+        <div style={{fontFamily:"Georgia,serif", fontSize:18, color:"#1a1820", marginBottom:8}}>Contacts saved!</div>
+        <div style={{fontSize:13, color:"#6b7280", marginBottom:24}}>
+          Added to {accChoice==="new" ? (extracted.company||"New Account") : (chosenAcc ? chosenAcc.name : "account")}.
+        </div>
+        <button onClick={closeModal} style={{padding:"8px 24px", background:"#c8980a", border:"none", borderRadius:8, color:"#0a0d13", fontWeight:700, cursor:"pointer", fontSize:14}}>Done</button>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      {!imgData && (
+        <div
+          onDrop={function(e){e.preventDefault();handleFile(e.dataTransfer.files[0]);}}
+          onDragOver={function(e){e.preventDefault();}}
+          onClick={function(){fileRef.current.click();}}
+          onMouseEnter={function(e){e.currentTarget.style.borderColor="#7c3aed";}}
+          onMouseLeave={function(e){e.currentTarget.style.borderColor="#d1d5db";}}
+          style={{border:"2px dashed #d1d5db", borderRadius:12, padding:"48px 24px", textAlign:"center", cursor:"pointer", background:"#fafafa"}}>
+          <div style={{fontSize:36, marginBottom:12}}>&#128203;</div>
+          <div style={{fontWeight:700, fontSize:15, color:"#1a1820", marginBottom:6}}>Drop a screenshot here</div>
+          <div style={{fontSize:13, color:"#6b7280"}}>LinkedIn page, team page, business card, email signature</div>
+          <input ref={fileRef} type="file" accept="image/*" style={{display:"none"}} onChange={function(e){handleFile(e.target.files[0]);}}/>
+        </div>
+      )}
+      {imgData && !extracted && (
+        <div>
+          <img src={imgData} style={{width:"100%", maxHeight:300, objectFit:"contain", borderRadius:8, marginBottom:16, border:"1px solid #e5e7eb"}}/>
+          <div style={{display:"flex", gap:10}}>
+            <button onClick={function(){setImgData(null);}} style={{padding:"8px 18px", background:"transparent", border:"1px solid #d1d5db", borderRadius:8, cursor:"pointer", fontSize:13, color:"#6b7280"}}>
+              Use Different Image
+            </button>
+            <button onClick={extract} disabled={loading} style={{flex:1, padding:"8px 18px", background:loading?"#e5e7eb":"#c8980a", border:"none", borderRadius:8, cursor:loading?"default":"pointer", fontWeight:700, fontSize:14, color:loading?"#9ca3af":"#0a0d13"}}>
+              {loading ? "Reading image..." : "Extract Contacts"}
+            </button>
+          </div>
+          {loading && (
+            <div style={{textAlign:"center", color:"#6b7280", fontSize:13, marginTop:16}}>Claude is reading the image...</div>
+          )}
+        </div>
+      )}
+      {extracted && (
+        <div>
+          {extracted.error && (
+            <div style={{color:"#ef4444", fontSize:13, marginBottom:12, padding:"10px 14px", background:"#fef2f2", borderRadius:8}}>
+              {extracted.error}
+            </div>
+          )}
+          <div style={{marginBottom:20}}>
+            <div style={{fontWeight:700, fontSize:14, color:"#1a1820", marginBottom:8}}>
+              Company: <span style={{color:"#c8980a"}}>{extracted.company||"Unknown"}</span>
+            </div>
+            {matches[0] && (
+              <div style={{fontSize:13, color:"#6b7280", marginBottom:10, padding:"8px 12px", background:"#fefce8", borderRadius:8, border:"1px solid #fde68a"}}>
+                Possible match: <strong>{matches[0].acc.name}</strong> ({Math.round(matches[0].score*100)}% match)
+              </div>
+            )}
+            <div style={{display:"flex", flexDirection:"column", gap:6}}>
+              {matches.slice(0,3).map(function(m) {
+                return (
+                  <label key={m.acc.id} style={{display:"flex", alignItems:"center", gap:10, padding:"8px 12px", border:"1px solid "+(accChoice===m.acc.id?"#7c3aed":"#e5e7eb"), borderRadius:8, cursor:"pointer", background:accChoice===m.acc.id?"#f5f3ff":"#fff"}}>
+                    <input type="radio" name="accMatch" value={m.acc.id} checked={accChoice===m.acc.id} onChange={function(){setAccChoice(m.acc.id);}} style={{accentColor:"#7c3aed"}}/>
+                    <span style={{flex:1, fontWeight:500, fontSize:14}}>{m.acc.name}</span>
+                    <span style={{fontSize:12, color:"#9ca3af"}}>{Math.round(m.score*100)}% match &middot; Tier {m.acc.tier}</span>
+                  </label>
+                );
+              })}
+              <label style={{display:"flex", alignItems:"center", gap:10, padding:"8px 12px", border:"1px solid "+(accChoice==="new"?"#7c3aed":"#e5e7eb"), borderRadius:8, cursor:"pointer", background:accChoice==="new"?"#f5f3ff":"#fff"}}>
+                <input type="radio" name="accMatch" value="new" checked={accChoice==="new"} onChange={function(){setAccChoice("new");}} style={{accentColor:"#7c3aed"}}/>
+                <span style={{flex:1, fontWeight:500, fontSize:14}}>Create new account: <em>{extracted.company||"Unknown"}</em></span>
+              </label>
+            </div>
+          </div>
+          <div style={{fontWeight:700, fontSize:14, color:"#1a1820", marginBottom:10}}>
+            Contacts found ({(extracted.contacts||[]).length})
+            <span style={{fontWeight:400, fontSize:12, color:"#9ca3af", marginLeft:8}}>Uncheck any to skip</span>
+          </div>
+          <div style={{display:"flex", flexDirection:"column", gap:6, maxHeight:280, overflowY:"auto", marginBottom:16}}>
+            {(extracted.contacts||[]).map(function(con, i) {
+              var dup = getDup(con);
+              var borderColor = dup && dup.type==="exact" ? "#fca5a5" : dup && dup.type==="possible" ? "#fde68a" : "#e5e7eb";
+              var bgColor = !sel[i] ? "#f9fafb" : dup && dup.type==="exact" ? "#fef2f2" : dup && dup.type==="possible" ? "#fefce8" : "#fff";
+              return (
+                <label key={i} style={{display:"flex", alignItems:"flex-start", gap:10, padding:"10px 12px", border:"1px solid "+borderColor, borderRadius:8, cursor:"pointer", background:bgColor, opacity:sel[i]?1:0.5}}>
+                  <input type="checkbox" checked={!!sel[i]} onChange={function(e){setSel(function(p){var n=Object.assign({},p);n[i]=e.target.checked;return n;});}} style={{marginTop:2, accentColor:"#7c3aed"}}/>
+                  <div style={{flex:1}}>
+                    <div style={{fontWeight:600, fontSize:14, color:"#1a1820"}}>{con.name||"—"}</div>
+                    {con.title && <div style={{fontSize:12, color:"#6b7280"}}>{con.title}</div>}
+                    {con.email && <div style={{fontSize:12, color:"#6b7280"}}>{con.email}</div>}
+                    {con.phone && <div style={{fontSize:12, color:"#6b7280"}}>{con.phone}</div>}
+                  </div>
+                  {dup && dup.type==="exact" && <span style={{fontSize:11, color:"#ef4444", fontWeight:600, whiteSpace:"nowrap"}}>Already exists</span>}
+                  {dup && dup.type==="possible" && <span style={{fontSize:11, color:"#d97706", fontWeight:600, whiteSpace:"nowrap"}}>Possible dup ({dup.pct}%)</span>}
+                </label>
+              );
+            })}
+          </div>
+          <div style={{display:"flex", gap:10}}>
+            <button onClick={function(){setExtracted(null);setImgData(null);}} style={{padding:"8px 18px", background:"transparent", border:"1px solid #d1d5db", borderRadius:8, cursor:"pointer", fontSize:13, color:"#6b7280"}}>
+              Start Over
+            </button>
+            <button onClick={save} disabled={!selCount||!accChoice} style={{flex:1, padding:"10px 18px", background:(!selCount||!accChoice)?"#e5e7eb":"#7c3aed", border:"none", borderRadius:8, cursor:"pointer", fontWeight:700, fontSize:14, color:(!selCount||!accChoice)?"#9ca3af":"#fff"}}>
+              Save {selCount} Contact{selCount!==1?"s":""}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+
 function App() {
   const [data,    setData]    = useState(null);
   const [view,    setView]    = useState("dash");
@@ -473,11 +692,7 @@ function App() {
   const alerts = [];
   data.accounts.forEach(acc=>acc.contacts.forEach(con=>con.activities.forEach(act=>{
     if(!act.followUp||!isOverdue(act.followUp)) return;
-    // Skip if linked job is Budgetary Only
-    if(act.jobId){
-      const linkedJob=acc.jobs.find(j=>j.id===act.jobId);
-      if(linkedJob&&linkedJob.status==="Budget / Budgetary Only") return;
-    }
+    if(act.jobId){const lj=acc.jobs.find(j=>j.id===act.jobId);if(lj&&lj.status==="Budget / Budgetary Only") return;}
     alerts.push({accName:acc.name,conName:con.name,type:act.type,followUp:act.followUp,accId:acc.id,conId:con.id});
   })));
 
@@ -518,14 +733,12 @@ function App() {
   const activeBidVal  = windowJobs.filter(j=>j.status==="Active Pursuit").reduce((s,j)=>s+jVal(j),0);
   const pendingBidVal = windowJobs.filter(j=>j.status==="Proposal Pending").reduce((s,j)=>s+jVal(j),0);
   const budgetBidVal  = windowJobs.filter(j=>j.status==="Budget / Budgetary Only").reduce((s,j)=>s+jVal(j),0);
-  const holdBidVal    = windowJobs.filter(j=>j.status==="On Hold").reduce((s,j)=>s+jVal(j),0);
   const totalBidVal   = windowJobs.reduce((s,j)=>s+jVal(j),0);
   const pipeSegs = [
     {key:"Won",                    val:wonBidVal,     color:C.green},
     {key:"Active Pursuit",         val:activeBidVal,  color:C.blue},
     {key:"Proposal Pending",       val:pendingBidVal, color:"#c8980a"},
     {key:"Budget / Budgetary Only",val:budgetBidVal,  color:C.textLo},
-    {key:"On Hold",                val:holdBidVal,    color:C.purple},
     {key:"Lost",                   val:lostBidVal,    color:C.red},
   ].filter(s=>s.val>0);
 
@@ -643,7 +856,6 @@ function App() {
     const sun=new Date(mon); sun.setDate(mon.getDate()+6); sun.setHours(23,59,59,999);
     return {mon,sun};
   };
-
   const saveGeneralActivity = () => {
     upd(d=>{
       if(!d.generalActivities) d.generalActivities=[];
@@ -654,12 +866,10 @@ function App() {
     setGenLogForm({type:"LinkedIn",notes:"",date:new Date().toISOString().slice(0,10),count:1});
     setShowGenLog(false);
   };
-
   const delGeneralActivity = id => upd(d=>{
     d.generalActivities=(d.generalActivities||[]).filter(a=>a.id!==id);
     return d;
   });
-
   const generateWeeklyReport = async () => {
     setReportLoading(true); setWeeklyReport(null);
     try {
@@ -670,7 +880,7 @@ function App() {
         if(inWeek(act.date)) weekActs.push({...act,accName:acc.name,conName:con.name,tier:acc.tier});
       })));
       const genActs=(data.generalActivities||[]).filter(a=>inWeek(a.date));
-      const decisionsDue=[], overdueItems=[];
+      const decisionsDue=[],overdueItems=[];
       data.accounts.forEach(acc=>{
         acc.jobs.filter(j=>!["Won","Lost"].includes(j.status)).forEach(j=>{
           const diff=j.dueDate?Math.ceil((new Date(j.dueDate)-new Date())/86400000):null;
@@ -678,8 +888,8 @@ function App() {
         });
         acc.contacts.forEach(con=>con.activities.forEach(act=>{
           if(act.followUp&&isOverdue(act.followUp)){
-            const linkedJob=acc.jobs.find(j=>j.id===act.jobId);
-            if(!linkedJob||linkedJob.status!=="Budget / Budgetary Only")
+            const lj=acc.jobs.find(j=>j.id===act.jobId);
+            if(!lj||lj.status!=="Budget / Budgetary Only")
               overdueItems.push({acc:acc.name,con:con.name,type:act.type,due:act.followUp});
           }
         }));
@@ -716,33 +926,30 @@ function App() {
     } catch(e){setWeeklyReport("Could not generate report. Check connection and try again.");}
     setReportLoading(false);
   };
-
   const copyReport=()=>{
     if(!weeklyReport)return;
     navigator.clipboard.writeText(weeklyReport).then(()=>{setReportCopied(true);setTimeout(()=>setReportCopied(false),2500);});
   };
-
   const printReport=()=>{
     if(!weeklyReport)return;
     const {mon,sun}=getWeekBounds();
     const w=window.open("","_blank");
     const esc=weeklyReport.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
-    const html="<!DOCTYPE html><html><head><title>Fairco Weekly BD Report</title>"
+    const html="<!DOCTYPE html><html><head><title>Fairco Weekly BD Report<" + "/title>"
       +"<style>body{font-family:Georgia,serif;max-width:800px;margin:48px auto;color:#1a1820;font-size:15px;line-height:1.75;}"
       +"h1{font-size:26px;border-bottom:3px solid #c8980a;padding-bottom:10px;}"
       +"h2{font-size:13px;color:#6b7280;font-weight:400;margin:0 0 32px;}"
       +"pre{white-space:pre-wrap;font-family:Georgia,serif;font-size:14px;line-height:1.85;}"
-      +"@media print{body{margin:24px;}}</style></head><body>"
-      +"<h1>Fairco Landscape Development</h1>"
+      +"@media print{body{margin:24px;}}<" + "/style><" + "/head><body>"
+      +"<h1>Fairco Landscape Development<" + "/h1>"
       +"<h2>Weekly BD Report - Week of "
       +mon.toLocaleDateString("en-US",{month:"long",day:"numeric"})
       +" to "+sun.toLocaleDateString("en-US",{month:"long",day:"numeric",year:"numeric"})
-      +"</h2><pre>"+esc+"</pre>"
-      +"<"+"script>window.onload=function(){window.print();}<"+"/script>"
-      +"</body></html>";
+      +"<" + "/h2><pre>"+esc+"<" + "/pre>"
+      +"<" + "script>window.onload=function(){window.print();};<" + "/script>"
+      +"<" + "/body><" + "/html>";
     w.document.write(html); w.document.close();
   };
-
 
     const openMergeContacts = () => {
     const acc = gAcc();
@@ -939,7 +1146,7 @@ function App() {
     );
   };
   const ConForm = ({isNew}) => {
-    const [f, setF] = useState({name:form.name||"",title:form.title||"",email:form.email||"",phone:form.phone||"",role:form.role||"Unknown",relStrength:form.relStrength||3,howMet:form.howMet||"",notes:form.notes||""});
+    const [f, setF] = useState({name:form.name||"",title:form.title||"",email:form.email||"",phone:form.phone||"",role:form.role||"Unknown",howMet:form.howMet||"",notes:form.notes||""});
     const upF = k => e => setF(p=>({...p,[k]:e.target.value}));
     return (
       <>
@@ -962,20 +1169,11 @@ function App() {
               {HOW_MET.map(h=><option key={h} value={h}>{h||"-- Select --"}</option>)}
             </select>
           </Field>
-          <Field label="Relationship Strength" half>
-            <div style={{display:"flex",gap:6,marginTop:4}}>
-              {[1,2,3,4,5].map(n=>(
-                <button key={n} type="button" onClick={()=>setF(p=>({...p,relStrength:n}))}
-                  style={{width:32,height:32,borderRadius:6,border:`1px solid ${f.relStrength>=n?"#c8980a60":C.border2}`,background:f.relStrength>=n?"#c8980a20":"transparent",color:f.relStrength>=n?"#c8980a":C.textDim,cursor:"pointer",fontSize:16,fontFamily:C.sans}}>
-                  {f.relStrength>=n?"\u2605":"\u2606"}
-                </button>
-              ))}
-            </div>
-          </Field>
+          
         </Row>
         <Field label="Notes"><textarea style={{...inp,resize:"vertical",height:70}} value={f.notes} onChange={upF("notes")} placeholder="Context, talking points, relationship history..."/></Field>
         <button style={{...btn(C.gold,"#0a0d13"),width:"100%",justifyContent:"center",marginTop:4}} onClick={()=>{
-          const b={name:f.name||"New Contact",title:f.title||"",email:f.email||"",phone:f.phone||"",role:f.role||"Unknown",relStrength:parseInt(f.relStrength)||3,howMet:f.howMet||"",notes:f.notes||""};
+          const b={name:f.name||"New Contact",title:f.title||"",email:f.email||"",phone:f.phone||"",role:f.role||"Unknown",howMet:f.howMet||"",notes:f.notes||""};
           if(isNew) upd(d=>{d.accounts.find(a=>a.id===selAcc).contacts.push({id:uid(),...b,activities:[]});return d;});
           else upd(d=>{Object.assign(d.accounts.find(a=>a.id===selAcc).contacts.find(c=>c.id===form.id),b);return d;});
           closeModal();
@@ -1272,7 +1470,8 @@ function App() {
           return <Modal title="Search" wide onClose={closeModal}><SForm/></Modal>;
         }
 
-                if(modal==="settings") return (
+                if(modal==="contactImport") return <ContactImportModal data={data} upd={upd} closeModal={closeModal} />;
+      if(modal==="settings") return (
       <Modal title="Settings" onClose={closeModal}>
         <Field label="Your Name"><input style={inp} value={form.userName!=null?form.userName:userName} onChange={ff("userName")}/></Field>
         <div style={divL}/>
@@ -1337,11 +1536,9 @@ function App() {
     const firstDay = new Date(year,month,1).getDay();
     const daysInMonth = new Date(year,month+1,0).getDate();
     const monthNames = ["January","February","March","April","May","June","July","August","September","October","November","December"];
-
-    // Gather all active jobs with due dates in this month
     const jobsByDay = {};
     data.accounts.forEach(acc => {
-      acc.jobs.filter(j=>j.dueDate && j.status!=="Lost").forEach(j=>{
+      acc.jobs.filter(j=>j.dueDate&&["Active Pursuit","Proposal Pending"].includes(j.status)).forEach(j=>{
         const d = new Date(j.dueDate);
         if(d.getFullYear()===year && d.getMonth()===month){
           const day = d.getDate();
@@ -1350,21 +1547,33 @@ function App() {
         }
       });
     });
-
+    const outreachByDay = {};
+    (data.generalActivities||[]).forEach(a => {
+      if(!a.date) return;
+      const d = new Date(a.date);
+      if(d.getFullYear()===year && d.getMonth()===month){
+        const day = d.getDate();
+        if(!outreachByDay[day]) outreachByDay[day] = [];
+        outreachByDay[day].push(a);
+      }
+    });
     const today = new Date();
     const isToday = (d) => today.getFullYear()===year && today.getMonth()===month && today.getDate()===d;
-
+    const hasAnything = Object.keys(jobsByDay).length>0 || Object.keys(outreachByDay).length>0;
     const cells = [];
     for(let i=0;i<firstDay;i++) cells.push(null);
     for(let d=1;d<=daysInMonth;d++) cells.push(d);
-
     return (
       <div>
-        <div style={{display:"flex",alignItems:"center",gap:16,marginBottom:20}}>
+        <div style={{display:"flex",alignItems:"center",gap:16,marginBottom:16,flexWrap:"wrap"}}>
           <button onClick={()=>setCalMonth(p=>{ let m=p.month-1,y=p.year; if(m<0){m=11;y--;} return {year:y,month:m}; })} style={{...btn(null,C.textLo,C.border2),padding:"5px 12px"}}>‹</button>
           <span style={{fontFamily:C.serif,fontSize:20,color:C.textHi,minWidth:180,textAlign:"center"}}>{monthNames[month]} {year}</span>
           <button onClick={()=>setCalMonth(p=>{ let m=p.month+1,y=p.year; if(m>11){m=0;y++;} return {year:y,month:m}; })} style={{...btn(null,C.textLo,C.border2),padding:"5px 12px"}}>›</button>
           <button onClick={()=>{ const n=new Date(); setCalMonth({year:n.getFullYear(),month:n.getMonth()}); }} style={{...btn(null,C.gold,C.border2),padding:"5px 12px",fontSize:12}}>Today</button>
+          <div style={{display:"flex",alignItems:"center",gap:12,marginLeft:"auto",fontSize:11,color:C.textDim}}>
+            <span style={{display:"flex",alignItems:"center",gap:4}}><span style={{width:10,height:10,borderRadius:3,background:C.blue+"44",border:"1px solid "+C.blue+"60",display:"inline-block"}}></span>Active / Pending</span>
+            <span style={{display:"flex",alignItems:"center",gap:4}}><span style={{width:10,height:10,borderRadius:3,background:"#7c3aed22",border:"1px solid #7c3aed60",display:"inline-block"}}></span>Outreach</span>
+          </div>
         </div>
         <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:2,marginBottom:4}}>
           {["Sun","Mon","Tue","Wed","Thu","Fri","Sat"].map(d=>(
@@ -1375,31 +1584,38 @@ function App() {
           {cells.map((d,i)=>{
             if(!d) return <div key={"e"+i} style={{minHeight:90,background:C.surface,borderRadius:6,opacity:0.3}}/>;
             const jobs = jobsByDay[d]||[];
+            const outreach = outreachByDay[d]||[];
             return (
-              <div key={d} style={{minHeight:90,background:isToday(d)?"#1a1f10":C.surface,border:`1px solid ${isToday(d)?C.gold+"60":C.border}`,borderRadius:6,padding:4}}>
+              <div key={d} style={{minHeight:90,background:isToday(d)?"#1a1f10":C.surface,border:"1px solid "+(isToday(d)?C.gold+"60":C.border),borderRadius:6,padding:4}}>
                 <div style={{fontSize:12,fontWeight:isToday(d)?700:400,color:isToday(d)?C.gold:C.textLo,marginBottom:3,textAlign:"right",paddingRight:2}}>{d}</div>
                 {jobs.map(j=>{
                   const sc=STATUS_COLORS[j.status]||C.textDim;
                   return (
                     <div key={j.id} onClick={()=>navTo("job",{accId:j.accId,jobId:j.id})}
-                      style={{background:sc+"22",border:`1px solid ${sc}50`,borderRadius:4,padding:"2px 5px",marginBottom:2,cursor:"pointer",fontSize:10,color:sc,fontWeight:600,lineHeight:1.3,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}
+                      style={{background:sc+"22",border:"1px solid "+sc+"50",borderRadius:4,padding:"2px 5px",marginBottom:2,cursor:"pointer",fontSize:10,color:sc,fontWeight:600,lineHeight:1.3,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}
                       title={j.name+" — "+j.accName}>
                       {j.name}
                     </div>
                   );
                 })}
+                {outreach.map(a=>(
+                  <div key={a.id}
+                    style={{background:"#7c3aed22",border:"1px solid #7c3aed50",borderRadius:4,padding:"2px 5px",marginBottom:2,fontSize:10,color:"#a78bfa",fontWeight:600,lineHeight:1.3,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}
+                    title={a.type+(a.notes?" — "+a.notes:"")+(a.count>1?" ("+a.count+" contacts)":"")}>
+                    {a.type}{a.count>1?" ×"+a.count:""}
+                  </div>
+                ))}
               </div>
             );
           })}
         </div>
-        {Object.keys(jobsByDay).length===0&&(
-          <div style={{textAlign:"center",color:C.textDim,fontSize:13,marginTop:40}}>No jobs with due dates in {monthNames[month]}.</div>
+        {!hasAnything&&(
+          <div style={{textAlign:"center",color:C.textDim,fontSize:13,marginTop:40}}>No activity in {monthNames[month]}. Add job due dates or log outreach to see them here.</div>
         )}
       </div>
     );
   };
 
-  // ── MAP VIEW ──────────────────────────────────────────────────────────────
   const MapView = ({data,setSA,setSJ,setView}) => {
     const mapRef = React.useRef(null);
     const mapInstance = React.useRef(null);
@@ -1455,37 +1671,36 @@ function App() {
           const sc = domJob ? STATUS_COLORS[domJob.status]||"#6b7280" : "#6b7280";
           const count = jobs.length;
           const size = count > 1 ? 28 : 18;
-          const html = count > 1
-            ? `<div style="width:${size}px;height:${size}px;border-radius:50%;background:${sc};border:2px solid #fff;box-shadow:0 2px 8px rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#fff;font-family:sans-serif">${count}</div>`
-            : `<div style="width:${size}px;height:${size}px;border-radius:50%;background:${sc};border:2px solid #fff;box-shadow:0 2px 8px rgba(0,0,0,0.5)"></div>`;
-          const icon = L.divIcon({html,className:"",iconSize:[size,size],iconAnchor:[size/2,size/2]});
-          const accLine = jobs[0]&&jobs[0].accName ? `<div style="color:#888;font-size:12px;margin-bottom:6px">${jobs[0].accName}</div>` : "";
-          const popupLines = jobs.map(j=>`<div style="margin-bottom:4px"><strong>${j.name}</strong> (${j.status})${j.estimatedValue?" · "+j.estimatedValue:""}</div>`).join("");
+          const inner = count > 1
+            ? '<div style="width:'+size+'px;height:'+size+'px;border-radius:50%;background:'+sc+';border:2px solid #fff;box-shadow:0 2px 8px rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#fff;font-family:sans-serif">'+count+'</div>'
+            : '<div style="width:'+size+'px;height:'+size+'px;border-radius:50%;background:'+sc+';border:2px solid #fff;box-shadow:0 2px 8px rgba(0,0,0,0.5)"></div>';
+          const icon = L.divIcon({html:inner,className:"",iconSize:[size,size],iconAnchor:[size/2,size/2]});
+          const accLabel = jobs[0]&&jobs[0].accName ? '<div style="color:#888;font-size:12px;margin-bottom:6px">'+jobs[0].accName+'</div>' : "";
+          const popupLines = jobs.map(j=>'<div style="margin-bottom:4px"><strong>'+j.name+'</strong> ('+j.status+')'+(j.estimatedValue?' &middot; '+j.estimatedValue:'')+'</div>').join("");
           L.marker([parseFloat(lat), parseFloat(lon)], {icon})
-            .bindPopup(`<div style="font-family:sans-serif;font-size:13px;min-width:160px">${accLine}${popupLines}</div>`)
+            .bindPopup('<div style="font-family:sans-serif;font-size:13px;min-width:160px">'+accLabel+popupLines+'</div>')
             .on("click",()=>{ if(count===1) navTo("job",{accId:jobs[0].accId,jobId:jobs[0].id}); })
             .addTo(map);
         };
 
-        // Process locations - cached instant, new ones staggered 120ms
-        let delay=0;
+        // Process each unique location with caching
+        let geoDelay=0;
         Object.entries(locationGroups).forEach(([key, group])=>{
           if(geocacheRef.current[key]){
             const {lat,lon} = geocacheRef.current[key];
             addMarkers(lat, lon, group.jobs);
           } else {
             setTimeout(()=>{
-              const query = encodeURIComponent(group.location+", AZ, USA");
-              fetch("https://nominatim.openstreetmap.org/search?format=json&q="+query+"&limit=1")
-                .then(r=>r.json())
-                .then(results=>{
-                  if(!results||!results[0]) return;
-                  const {lat,lon} = results[0];
-                  geocacheRef.current[key] = {lat,lon};
-                  addMarkers(lat, lon, group.jobs);
-                }).catch(()=>{});
-            }, delay);
-            delay+=120;
+            const query = encodeURIComponent(group.location+", AZ, USA");
+            fetch("https://nominatim.openstreetmap.org/search?format=json&q="+query+"&limit=1")
+              .then(r=>r.json())
+              .then(results=>{
+                if(!results||!results[0]) return;
+                const {lat,lon} = results[0];
+                geocacheRef.current[key] = {lat,lon};
+                addMarkers(lat, lon, group.jobs);
+              }).catch(()=>{});
+            }, geoDelay); geoDelay+=120;
           }
         });
 
@@ -1540,7 +1755,7 @@ function App() {
           </div>
         )}
         {loading&&<div style={{textAlign:"center",color:C.textDim,padding:40}}>Loading map…</div>}
-        <div ref={mapRef} style={{width:"100%",height:"100%",minHeight:520,borderRadius:12,border:"1px solid "+C.border,display:loading?"none":"block"}}/>
+        <div ref={mapRef} style={{width:"100%",height:500,borderRadius:12,border:"1px solid "+C.border,display:loading?"none":"block"}}/>
         {!loading&&jobsWithLoc.length===0&&(
           <div style={{...card,textAlign:"center",color:C.textDim,padding:48}}>No jobs have locations set yet. Click a job in the missing list above to add one.</div>
         )}
@@ -1648,9 +1863,9 @@ function App() {
   };
 
   const JobListView = ({jobSort,inWindow,jVal,setSA,setSJ,setView,data,statusFilter,setStatusFilter}) => {
-    const STATUS_ORDER={"Active Pursuit":0,"Proposal Pending":1,"Budget / Budgetary Only":2,"On Hold":3,"Won":4,"Lost":5};
+    const STATUS_ORDER={"Active Pursuit":0,"Proposal Pending":1,"Budget / Budgetary Only":2,"Won":3,"Lost":4};
     const flatJobs=data.accounts.flatMap(acc=>
-      acc.jobs.filter(j=>inWindow(j)&&j.status!=="Lost"&&(!statusFilter||j.status===statusFilter)).map(j=>{
+      acc.jobs.filter(j=>["Active Pursuit","Proposal Pending"].includes(j.status)&&(!statusFilter||j.status===statusFilter)).map(j=>{
         const linkedActs=acc.contacts.flatMap(c=>c.activities.filter(a=>a.jobId===j.id)).sort((a,b)=>new Date(b.date)-new Date(a.date));
         const linkedCons=acc.contacts.filter(c=>c.activities.some(a=>a.jobId===j.id));
         return {...j,accId:acc.id,accName:acc.name,accTier:acc.tier,linkedAct:linkedActs[0]||null,linkedCons};
@@ -1658,7 +1873,6 @@ function App() {
     );
     const sorted=[...flatJobs].sort((a,b)=>{
       if(jobSort==="due"){
-        if(!a.dueDate&&!b.dueDate) return a.name.localeCompare(b.name);
         if(!a.dueDate) return 1;
         if(!b.dueDate) return -1;
         return new Date(a.dueDate)-new Date(b.dueDate);
@@ -1763,14 +1977,14 @@ function App() {
         </div>
 
         {/* -- Weekly BD Report + General Outreach Log -- */}
-        <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:14,padding:"18px 22px",marginBottom:22}}>
+        <div style={{background:C.surface,border:"1px solid "+C.border,borderRadius:14,padding:"18px 22px",marginBottom:22}}>
           <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:10,marginBottom:16}}>
             <div>
               <div style={{fontFamily:C.serif,fontSize:17,color:C.textHi}}>Weekly BD Report</div>
               <div style={{fontSize:12,color:C.textDim,marginTop:2}}>{(()=>{const {mon,sun}=getWeekBounds();return mon.toLocaleDateString("en-US",{month:"short",day:"numeric"})+" - "+sun.toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"});})()}</div>
             </div>
             <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
-              <div style={{display:"flex",border:`1px solid ${C.border2}`,borderRadius:8,overflow:"hidden",fontSize:12}}>
+              <div style={{display:"flex",border:"1px solid "+C.border2,borderRadius:8,overflow:"hidden",fontSize:12}}>
                 <button onClick={()=>setReportFormat("copy")} style={{padding:"5px 12px",background:reportFormat==="copy"?C.blue:"transparent",color:reportFormat==="copy"?"#fff":C.textDim,border:"none",cursor:"pointer",fontFamily:C.sans}}>Copy and Email</button>
                 <button onClick={()=>setReportFormat("pdf")} style={{padding:"5px 12px",background:reportFormat==="pdf"?C.blue:"transparent",color:reportFormat==="pdf"?"#fff":C.textDim,border:"none",cursor:"pointer",fontFamily:C.sans}}>Print / PDF</button>
               </div>
@@ -1779,14 +1993,12 @@ function App() {
               </button>
             </div>
           </div>
-
           {reportLoading&&(
             <div style={{display:"flex",alignItems:"center",gap:12,padding:"18px 0",color:C.textDim,fontSize:13}}>
-              <div style={{width:18,height:18,border:`2px solid ${C.gold}`,borderTopColor:"transparent",borderRadius:"50%",animation:"spin 0.8s linear infinite"}}/>
-              Analyzing this week's activity and pipeline...
+              <div style={{width:18,height:18,border:"2px solid "+C.gold,borderTopColor:"transparent",borderRadius:"50%",animation:"spin 0.8s linear infinite"}}/>
+              Analyzing this week&apos;s activity and pipeline...
             </div>
           )}
-
           {weeklyReport&&!reportLoading&&(
             <div>
               <div style={{display:"flex",gap:8,marginBottom:14}}>
@@ -1800,21 +2012,19 @@ function App() {
                 )}
                 <button onClick={()=>setWeeklyReport(null)} style={{...btn(null,C.textLo,C.border2),fontSize:12,padding:"5px 14px"}}>Clear</button>
               </div>
-              <div style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:10,padding:"18px 20px",fontFamily:"Georgia,serif",fontSize:14,lineHeight:1.85,color:C.textHi,whiteSpace:"pre-wrap",maxHeight:480,overflowY:"auto"}}>
+              <div style={{background:C.bg,border:"1px solid "+C.border,borderRadius:10,padding:"18px 20px",fontFamily:"Georgia,serif",fontSize:14,lineHeight:1.85,color:C.textHi,whiteSpace:"pre-wrap",maxHeight:480,overflowY:"auto"}}>
                 {weeklyReport.split("\n").map((line,i)=>{
-                  if(line.trim()==="===") return <hr key={i} style={{border:"none",borderTop:`1px solid ${C.border}`,margin:"16px 0"}}/>;
+                  if(line.trim()==="===") return <hr key={i} style={{border:"none",borderTop:"1px solid "+C.border,margin:"16px 0"}}/>;
                   if(/^[A-Z &]+$/.test(line.trim())&&line.trim().length>3) return <div key={i} style={{fontFamily:C.sans,fontWeight:700,fontSize:12,color:C.gold,textTransform:"uppercase",letterSpacing:"0.1em",marginTop:20,marginBottom:6}}>{line}</div>;
                   return <span key={i}>{line}{"\n"}</span>;
                 })}
               </div>
             </div>
           )}
-
           {!weeklyReport&&!reportLoading&&(
-            <div style={{color:C.textDim,fontSize:13,paddingTop:4}}>Generate your weekly BD report - covers account activity, prospecting outreach, pipeline decisions, overdue follow-ups, and recommended priorities for next week.</div>
+            <div style={{color:C.textDim,fontSize:13,paddingTop:4}}>Generate your weekly BD report - covers account activity, prospecting outreach, pipeline decisions, overdue follow-ups, and priorities for next week.</div>
           )}
-
-          <div style={{marginTop:20,borderTop:`1px solid ${C.border}`,paddingTop:16}}>
+          <div style={{marginTop:20,borderTop:"1px solid "+C.border,paddingTop:16}}>
             <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
               <div>
                 <div style={{fontWeight:700,fontSize:14,color:C.textHi}}>General Outreach Log</div>
@@ -1822,9 +2032,8 @@ function App() {
               </div>
               <button onClick={()=>setShowGenLog(s=>!s)} style={{...btn(null,C.blue,C.border2),fontSize:12,padding:"5px 12px"}}>{showGenLog?"Cancel":"+ Log Activity"}</button>
             </div>
-
             {showGenLog&&(
-              <div style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:10,padding:"14px 16px",marginBottom:14}}>
+              <div style={{background:C.bg,border:"1px solid "+C.border,borderRadius:10,padding:"14px 16px",marginBottom:14}}>
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr auto auto",gap:10,alignItems:"end"}}>
                   <div>
                     <div style={{fontSize:11,color:C.textDim,marginBottom:4}}>Type</div>
@@ -1850,13 +2059,12 @@ function App() {
                 </div>
               </div>
             )}
-
             {(data.generalActivities||[]).length===0&&!showGenLog&&(
-              <div style={{fontSize:13,color:C.textDim}}>No general outreach logged. Track LinkedIn blasts, events, and cold outreach here - anything not tied to a specific account.</div>
+              <div style={{fontSize:13,color:C.textDim}}>No general outreach logged yet. Track LinkedIn blasts, events, and cold outreach here.</div>
             )}
             <div style={{display:"flex",flexDirection:"column",gap:8,maxHeight:300,overflowY:"auto"}}>
               {(data.generalActivities||[]).slice(0,30).map(a=>(
-                <div key={a.id} style={{display:"flex",alignItems:"center",gap:12,background:C.bg,border:`1px solid ${C.border}`,borderRadius:8,padding:"9px 14px"}}>
+                <div key={a.id} style={{display:"flex",alignItems:"center",gap:12,background:C.bg,border:"1px solid "+C.border,borderRadius:8,padding:"9px 14px"}}>
                   <span style={{...pill(C.blue),fontSize:11,whiteSpace:"nowrap"}}>{a.type}</span>
                   <span style={{fontSize:13,color:C.textHi,flex:1}}>{a.notes}</span>
                   <span style={{fontSize:11,color:C.textDim,whiteSpace:"nowrap"}}>{a.count>1?a.count+" contacts · ":""}{a.date}</span>
@@ -1893,7 +2101,6 @@ function App() {
                 {label:"Active",     val:fmt$(Math.round(activeBidVal)),color:C.blue,   border:C.blue,      val2:allJobs.filter(j=>j.status==="Active Pursuit").length+" jobs", statusKey:"Active Pursuit"},
                 {label:"Pending",    val:fmt$(Math.round(pendingBidVal)),color:"#c8980a",border:"#c8980a",  val2:allJobs.filter(j=>j.status==="Proposal Pending").length+" jobs", statusKey:"Proposal Pending"},
                 {label:"Budgetary",  val:fmt$(Math.round(budgetBidVal)),color:C.textLo, border:C.border,    val2:allJobs.filter(j=>j.status==="Budget / Budgetary Only").length+" jobs", statusKey:"Budget / Budgetary Only"},
-                {label:"On Hold",    val:fmt$(Math.round(holdBidVal)),  color:C.purple, border:C.purple,    val2:allJobs.filter(j=>j.status==="On Hold").length+" jobs", statusKey:"On Hold"},
                 {label:"Lost",       val:fmt$(Math.round(lostBidVal)),  color:C.red,    border:C.red,       val2:allJobs.filter(j=>j.status==="Lost").length+" jobs", statusKey:"Lost"},
               ].filter(t=>t.always||(parseCur(t.val)>0)).map(t=>{
                 const isActive = statusFilter===t.statusKey && t.statusKey!==null;
@@ -2202,7 +2409,7 @@ function App() {
                         {con.name}
                         {con.role&&con.role!=="Unknown"&&<span style={{...pill(ROLE_COLORS[con.role]||C.textDim),fontSize:10,padding:"1px 6px"}}>{con.role}</span>}
                       </div>
-                      <div style={{fontSize:12,color:C.textDim}}>{con.title}{con.email?` / ${con.email}`:""}{con.relStrength?` ${"\u2605".repeat(con.relStrength)}`:""}</div>
+                      <div style={{fontSize:12,color:C.textDim}}>{con.title}{con.email?` / ${con.email}`:""}</div>
                     </div>
                   </div>
                   <div style={{display:"flex",alignItems:"center",gap:14}}>
@@ -2335,7 +2542,7 @@ function App() {
               <div style={{color:C.textLo,fontSize:13,marginBottom:10}}>{con.title}</div>
               <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:14,alignItems:"center"}}>
                 {con.role&&con.role!=="Unknown"&&<span style={{...pill(ROLE_COLORS[con.role]||C.textDim),fontSize:11}}>{con.role}</span>}
-                {con.relStrength>0&&<span style={{fontSize:13,color:"#c8980a",letterSpacing:1}}>{"\u2605".repeat(con.relStrength)}{"\u2606".repeat(5-(con.relStrength||0))}</span>}
+                
                 {con.howMet&&<span style={{fontSize:11,color:C.textDim,fontStyle:"italic"}}>via {con.howMet}</span>}
               </div>
               {(con.email||con.phone)&&<><div style={divL}/>{con.email&&<><div style={lbl}>Email</div><div style={{color:C.text,fontSize:13,marginTop:3,marginBottom:10}}>{con.email}</div></>}{con.phone&&<><div style={lbl}>Phone</div><div style={{color:C.text,fontSize:13,marginTop:3,marginBottom:10}}>{con.phone}</div></>}</>}
@@ -2391,6 +2598,7 @@ function App() {
           {winRate!==null&&<span style={{fontSize:12,color:C.textDim,borderLeft:`1px solid ${C.border}`,paddingLeft:10}}>{winRate}% win rate</span>}
           <span style={{color:C.textDim,fontSize:13,borderLeft:`1px solid ${C.border}`,paddingLeft:10}}>{userName}</span>
           <button onClick={exportData} style={{...btn(null,exportFlash?C.green:C.blue,exportFlash?C.green+"60":C.border2),minWidth:80,justifyContent:"center",transition:"all 0.3s"}}>{exportFlash?"✓ Saved!":"↓ Export"}</button>
+          <button style={{...btn(null,"#7c3aed","#7c3aed40"),minWidth:110,justifyContent:"center"}} onClick={()=>setModal("contactImport")}>+ Import Contacts</button>
           <button style={btn(null,C.textLo,C.border2)} onClick={()=>{setForm({});setModal("settings");}}>Settings</button>
         </div>
       </div>
