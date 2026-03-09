@@ -1470,7 +1470,7 @@ function App() {
           return <Modal title="Search" wide onClose={closeModal}><SForm/></Modal>;
         }
 
-                if(modal==="contactImport") return <ContactImportModal data={data} upd={upd} closeModal={closeModal} />;
+                if(modal==="contactImport") return <Modal title="Import Contacts from Screenshot" wide onClose={closeModal}><ContactImportModal data={data} upd={upd} closeModal={closeModal} /></Modal>;
       if(modal==="settings") return (
       <Modal title="Settings" onClose={closeModal}>
         <Field label="Your Name"><input style={inp} value={form.userName!=null?form.userName:userName} onChange={ff("userName")}/></Field>
@@ -1865,7 +1865,7 @@ function App() {
   const JobListView = ({jobSort,inWindow,jVal,setSA,setSJ,setView,data,statusFilter,setStatusFilter}) => {
     const STATUS_ORDER={"Active Pursuit":0,"Proposal Pending":1,"Budget / Budgetary Only":2,"Won":3,"Lost":4};
     const flatJobs=data.accounts.flatMap(acc=>
-      acc.jobs.filter(j=>["Active Pursuit","Proposal Pending"].includes(j.status)&&(!statusFilter||j.status===statusFilter)).map(j=>{
+      acc.jobs.filter(j=>statusFilter ? j.status===statusFilter : ["Active Pursuit","Proposal Pending"].includes(j.status)).map(j=>{
         const linkedActs=acc.contacts.flatMap(c=>c.activities.filter(a=>a.jobId===j.id)).sort((a,b)=>new Date(b.date)-new Date(a.date));
         const linkedCons=acc.contacts.filter(c=>c.activities.some(a=>a.jobId===j.id));
         return {...j,accId:acc.id,accName:acc.name,accTier:acc.tier,linkedAct:linkedActs[0]||null,linkedCons};
@@ -1926,7 +1926,7 @@ function App() {
                 <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:4,flexShrink:0}}>
                   {val>0&&<span style={{fontWeight:700,color:C.gold,fontSize:15}}>{fmt$(val)}</span>}
                   {!j.dueDate&&<span style={{fontSize:11,color:C.textDim,fontStyle:"italic"}}>No due date</span>}
-                  {j.dueDate&&(daysToDD<0
+                  {j.dueDate&&j.status!=="Budget / Budgetary Only"&&(daysToDD<0
                     ?<span style={{...pill(C.red),fontSize:11}}>{"Overdue "+Math.abs(daysToDD)+"d"}</span>
                     :daysToDD<=7
                       ?<span style={{...pill(C.red),fontSize:11}}>{"Due in "+daysToDD+"d"}</span>
