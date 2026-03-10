@@ -460,7 +460,7 @@ function ContactImportModal({data, upd, closeModal}) {
         method: "POST",
         headers: (function(){
           var key = localStorage.getItem('fairco_api_key')||"";
-          var h = {"Content-Type":"application/json","anthropic-dangerous-direct-browser-access":"true"};
+          var h = {"Content-Type":"application/json","anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"};
           if(key) h["x-api-key"] = key;
           return h;
         })(),
@@ -1141,7 +1141,12 @@ function App() {
         totalActiveJobs:data.accounts.flatMap(a=>a.jobs).filter(j=>["Active Pursuit","Proposal Pending"].includes(j.status)).length,
       };
       const res=await fetch("https://api.anthropic.com/v1/messages",{
-        method:"POST",headers:{"Content-Type":"application/json"},
+        method:"POST",headers:(function(){
+        var key=localStorage.getItem('fairco_api_key')||"";
+        var h={"Content-Type":"application/json","anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"};
+        if(key) h["x-api-key"]=key;
+        return h;
+      })(),
         body:JSON.stringify({
           model:"claude-sonnet-4-20250514",max_tokens:2000,
           system:"You are writing a weekly BD report for West at Fairco Landscape Development, a landscape construction company in AZ, CA, and NV since 1978. Write a professional, direct report a BD manager would send to ownership on Friday. Use real names and numbers. Format with === on its own line before each section header. Sections: WEEK IN REVIEW, ACCOUNT ACTIVITY, PROSPECTING & OUTREACH, PIPELINE WATCH, NEEDS ATTENTION, PRIORITIES FOR NEXT WEEK. Be specific and actionable. Short paragraphs over bullet lists.",
