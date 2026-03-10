@@ -8,6 +8,7 @@
 <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
 <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0;}
 body{background:#f0eff0;color:#1e2229;font-family:'DM Sans','Helvetica Neue',sans-serif;font-size:14px;}
@@ -28,6 +29,11 @@ select option{background:#ffffff;}
 const {useState,useEffect,useRef} = React;
 
 const STORAGE_KEY = "sales_os_v5";
+const SUPABASE_URL = "https://mxtmlgifukdlomuothzi.supabase.co";
+const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im14dG1sZ2lmdWtkbG9tdW90aHppIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMxMDgyNTEsImV4cCI6MjA4ODY4NDI1MX0.LWdPyXX24iaeNtKPrqCfg6r-BDdAwUImmp08zpfLRCc";
+const SB_TABLE = "app_data";
+const SB_ROW_ID = "salesos_main";
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const DEFAULT_MARKETS = ["General Contractor","Construction Manager","Owner / Developer","Home Builder","Subcontractor","Design-Build","Healthcare","Industrial","Government / Public","Mixed-Use / Multifamily"];
 const JOB_STATUSES   = ["Active Pursuit","Proposal Pending","Won","Lost","Budget / Budgetary Only"];
 const STATUS_COLORS  = {"Active Pursuit":"#7EB8F7","Proposal Pending":"#E8C547","Won":"#22c55e","Lost":"#ef4444","Budget / Budgetary Only":"#6b7280"};
@@ -103,43 +109,51 @@ const DEFAULT_DATA = {
   settings:{userName:"Me",yellowThreshold:14,redThreshold:30,markets:[...DEFAULT_MARKETS]}
 };
 
+function migrateData(d) {
+  if (!d.settings) d.settings = DEFAULT_DATA.settings;
+  if (!d.settings.markets) d.settings.markets = [...DEFAULT_MARKETS];
+  if (!d.generalActivities) d.generalActivities = [];
+  d.accounts.forEach(a => {
+    if(a.jobs) a.jobs.forEach(j=>{if(j.status==="On Hold") j.status="Budget / Budgetary Only";});
+    if (!a.jobs) a.jobs = [];
+    if (!a.markets) a.markets = [];
+    if (!a.contacts) a.contacts = [];
+    a.contacts.forEach(con => { if(!con.campaign) con.campaign = null; });
+    a.contacts.forEach(c => c.activities.forEach(act => { if (!("jobId" in act)) act.jobId = null; }));
+  });
+  return d;
+}
+
 async function loadData() {
   try {
-    let raw = null;
-    if (window.storage) {
-      const r = await window.storage.get(STORAGE_KEY);
-      if (r) raw = r.value;
-    } else {
-      raw = localStorage.getItem(STORAGE_KEY);
+    const { data, error } = await sb.from(SB_TABLE).select("payload").eq("id", SB_ROW_ID).single();
+    if (error && error.code !== "PGRST116") throw error; // PGRST116 = not found
+    if (data && data.payload) {
+      return migrateData(JSON.parse(data.payload));
     }
+    // Fall back to localStorage for one-time migration
+    const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
-      const d = JSON.parse(raw);
-      if (!d.settings) d.settings = DEFAULT_DATA.settings;
-      if (!d.settings.markets) d.settings.markets = [...DEFAULT_MARKETS];
-      if (!d.generalActivities) d.generalActivities = [];
-      d.accounts.forEach(a => {
-        if(a.jobs) a.jobs.forEach(j=>{if(j.status==="On Hold") j.status="Budget / Budgetary Only";});
-        if (!a.jobs) a.jobs = [];
-        if (!a.markets) a.markets = [];
-        if (!a.contacts) a.contacts = [];
-        a.contacts.forEach(con => { if(!con.campaign) con.campaign = null; });
-        a.contacts.forEach(c => c.activities.forEach(act => { if (!("jobId" in act)) act.jobId = null; }));
-      });
+      const d = migrateData(JSON.parse(raw));
+      await saveData(d); // migrate to Supabase
       return d;
     }
   } catch(e) { console.warn("Load error:", e); }
   return JSON.parse(JSON.stringify(DEFAULT_DATA));
 }
 
+let _saveTimer = null;
 async function saveData(d) {
   try {
-    const raw = JSON.stringify(d);
-    if (window.storage) {
-      await window.storage.set(STORAGE_KEY, raw);
-    } else {
-      localStorage.setItem(STORAGE_KEY, raw);
-    }
+    const payload = JSON.stringify(d);
+    const { error } = await sb.from(SB_TABLE).upsert({ id: SB_ROW_ID, payload, updated_at: new Date().toISOString() });
+    if (error) throw error;
   } catch(e) { console.warn("Save error:", e); }
+}
+
+function debouncedSave(d) {
+  if (_saveTimer) clearTimeout(_saveTimer);
+  _saveTimer = setTimeout(() => saveData(d), 1200);
 }
 
 const uid       = () => Math.random().toString(36).slice(2,9);
@@ -405,26 +419,39 @@ function ContactImportModal({data, upd, closeModal}) {
   const [imgData,   setImgData]   = React.useState(null);
   const [loading,   setLoading]   = React.useState(false);
   const [extracted, setExtracted] = React.useState(null);
-  const [accChoice, setAccChoice] = React.useState(null);
-  const [sel,       setSel]       = React.useState({});
   const [saved,     setSaved]     = React.useState(false);
+  // resolved[] = array of {con, acc, extractedIdx, action:"update"|"add"|"skip", targetAccId}
+  const [resolved,  setResolved]  = React.useState([]);
   const fileRef = React.useRef();
 
-  const matches = React.useMemo(function() {
-    if (!extracted || !extracted.company) return [];
-    return data.accounts
-      .map(function(a) { return {acc:a, score:nameSimilarity(a.name, extracted.company)}; })
-      .filter(function(x) { return x.score > 0.35; })
-      .sort(function(a,b) { return b.score - a.score; });
-  }, [extracted]);
+  // Build all contacts flat for matching
+  const allConFlat = React.useMemo(function() {
+    return data.accounts.flatMap(function(a) {
+      return a.contacts.map(function(con) { return {con:con, acc:a}; });
+    });
+  }, [data]);
 
+  // After extraction, auto-resolve each extracted contact
   React.useEffect(function() {
     if (!extracted) return;
-    var top = matches[0];
-    setAccChoice(top && top.score >= 0.7 ? top.acc.id : "new");
-    var s = {};
-    (extracted.contacts || []).forEach(function(_, i) { s[i] = true; });
-    setSel(s);
+    var res = (extracted.contacts||[]).map(function(ec, i) {
+      // 1. Try to match by name against all existing contacts
+      var nameCandidates = allConFlat
+        .map(function(x) { return {x:x, score:nameSimilarity(x.con.name, ec.name||"")}; })
+        .filter(function(x) { return x.score > 0.55; })
+        .sort(function(a,b) { return b.score-a.score; });
+      if (nameCandidates.length > 0) {
+        return {extractedIdx:i, action:"update", con:nameCandidates[0].x.con, acc:nameCandidates[0].x.acc, score:nameCandidates[0].score, targetAccId:null};
+      }
+      // 2. No name match — try to match account by company name
+      var accCandidates = data.accounts
+        .map(function(a) { return {a:a, score:nameSimilarity(a.name, extracted.company||"")}; })
+        .filter(function(x) { return x.score > 0.35; })
+        .sort(function(a,b) { return b.score-a.score; });
+      var bestAcc = accCandidates[0];
+      return {extractedIdx:i, action:"add", con:null, acc:null, score:0, targetAccId: bestAcc && bestAcc.score>=0.6 ? bestAcc.a.id : "new"};
+    });
+    setResolved(res);
   }, [extracted]);
 
   function handleFile(file) {
@@ -479,9 +506,7 @@ function ContactImportModal({data, upd, closeModal}) {
       var d = await res.json();
       if(d.error) throw new Error(d.error.message||"API error");
       var txt = (d.content||[]).filter(function(b){return b.type==="text";}).map(function(b){return b.text;}).join("").trim();
-      // Strip markdown fences if present
       txt = txt.replace(/^```json\s*/,"").replace(/^```\s*/,"").replace(/\s*```$/,"").trim();
-      // Find JSON object in response in case there's extra text
       var jsonMatch = txt.match(/\{[\s\S]*\}/);
       if(!jsonMatch) throw new Error("No JSON found in response: "+txt.slice(0,100));
       var parsed = JSON.parse(jsonMatch[0]);
@@ -494,34 +519,48 @@ function ContactImportModal({data, upd, closeModal}) {
     setLoading(false);
   }
 
-  function getDup(con) {
-    if (!accChoice || accChoice === "new") return null;
-    var acc = data.accounts.find(function(a) { return a.id === accChoice; });
-    if (!acc || !acc.contacts.length) return null;
-    var scored = acc.contacts.map(function(ex) { return {ex:ex, score:nameSimilarity(ex.name, con.name||"")}; });
-    var best = scored.sort(function(a,b){ return b.score-a.score; })[0];
-    if (!best) return null;
-    if (best.score > 0.85) return {type:"exact", name:best.ex.name};
-    if (best.score > 0.5)  return {type:"possible", name:best.ex.name, pct:Math.round(best.score*100)};
-    return null;
+  function updateResolved(i, changes) {
+    setResolved(function(r) {
+      var n = r.slice();
+      n[i] = Object.assign({}, n[i], changes);
+      return n;
+    });
   }
 
   function save() {
-    var toAdd = (extracted.contacts||[]).filter(function(_,i){ return sel[i]; });
-    if (!toAdd.length) return;
     upd(function(d) {
-      var acc;
-      if (accChoice === "new") {
-        acc = {id:uid(), name:extracted.company||"New Account", tier:2, markets:[], pros:[], contacts:[], jobs:[], notes:""};
-        d.accounts.push(acc);
-      } else {
-        acc = d.accounts.find(function(a){ return a.id === accChoice; });
-      }
-      if (!acc) return d;
-      toAdd.forEach(function(con) {
-        var exists = acc.contacts.some(function(ex){ return nameSimilarity(ex.name, con.name||"") > 0.85; });
-        if (!exists) {
-          acc.contacts.push({id:uid(), name:con.name||"", title:con.title||"", email:con.email||"", phone:con.phone||"", howMet:"", notes:con.notes||"", activities:[]});
+      resolved.forEach(function(r) {
+        var ec = (extracted.contacts||[])[r.extractedIdx];
+        if (!ec) return;
+        if (r.action === "skip") return;
+
+        if (r.action === "update" && r.con) {
+          // Find the live contact in d and patch empty fields
+          d.accounts.forEach(function(acc) {
+            var con = acc.contacts.find(function(c){ return c.id === r.con.id; });
+            if (con) {
+              if (ec.email && !con.email) con.email = ec.email;
+              if (ec.phone && !con.phone) con.phone = ec.phone;
+              if (ec.title && !con.title) con.title = ec.title;
+              if (ec.notes) con.notes = (con.notes ? con.notes+" | " : "") + ec.notes;
+            }
+          });
+          return;
+        }
+
+        if (r.action === "add") {
+          var acc;
+          if (r.targetAccId === "new") {
+            acc = {id:uid(), name:extracted.company||"New Account", tier:2, markets:[], pros:[], contacts:[], jobs:[], notes:""};
+            d.accounts.push(acc);
+          } else {
+            acc = d.accounts.find(function(a){ return a.id === r.targetAccId; });
+          }
+          if (!acc) return;
+          var exists = acc.contacts.some(function(ex){ return nameSimilarity(ex.name, ec.name||"") > 0.85; });
+          if (!exists) {
+            acc.contacts.push({id:uid(), name:ec.name||"", title:ec.title||"", email:ec.email||"", phone:ec.phone||"", howMet:"", notes:ec.notes||"", activities:[], campaign:null});
+          }
         }
       });
       return d;
@@ -529,17 +568,12 @@ function ContactImportModal({data, upd, closeModal}) {
     setSaved(true);
   }
 
-  var selCount = Object.values(sel).filter(Boolean).length;
-  var chosenAcc = accChoice && accChoice !== "new" ? data.accounts.find(function(a){return a.id===accChoice;}) : null;
-
   if (saved) {
     return (
       <div style={{textAlign:"center", padding:"40px 20px"}}>
         <div style={{fontSize:36, marginBottom:12}}>&#10003;</div>
-        <div style={{fontFamily:"Georgia,serif", fontSize:18, color:"#1a1820", marginBottom:8}}>Contacts saved!</div>
-        <div style={{fontSize:13, color:"#6b7280", marginBottom:24}}>
-          Added to {accChoice==="new" ? (extracted.company||"New Account") : (chosenAcc ? chosenAcc.name : "account")}.
-        </div>
+        <div style={{fontFamily:"Georgia,serif", fontSize:18, color:"#1a1820", marginBottom:8}}>Done!</div>
+        <div style={{fontSize:13, color:"#6b7280", marginBottom:24}}>Contact info updated.</div>
         <button onClick={closeModal} style={{padding:"8px 24px", background:"#c8980a", border:"none", borderRadius:8, color:"#0a0d13", fontWeight:700, cursor:"pointer", fontSize:14}}>Done</button>
       </div>
     );
@@ -584,61 +618,84 @@ function ContactImportModal({data, upd, closeModal}) {
               {extracted.error}
             </div>
           )}
-          <div style={{marginBottom:20}}>
-            <div style={{fontWeight:700, fontSize:14, color:"#1a1820", marginBottom:8}}>
-              Company: <span style={{color:"#c8980a"}}>{extracted.company||"Unknown"}</span>
+          {extracted.company && (
+            <div style={{fontSize:13, color:"#6b7280", marginBottom:14}}>
+              Found company: <strong style={{color:"#c8980a"}}>{extracted.company}</strong>
             </div>
-            {matches[0] && (
-              <div style={{fontSize:13, color:"#6b7280", marginBottom:10, padding:"8px 12px", background:"#fefce8", borderRadius:8, border:"1px solid #fde68a"}}>
-                Possible match: <strong>{matches[0].acc.name}</strong> ({Math.round(matches[0].score*100)}% match)
-              </div>
-            )}
-            <div style={{display:"flex", flexDirection:"column", gap:6}}>
-              {matches.slice(0,3).map(function(m) {
-                return (
-                  <label key={m.acc.id} style={{display:"flex", alignItems:"center", gap:10, padding:"8px 12px", border:"1px solid "+(accChoice===m.acc.id?"#7c3aed":"#e5e7eb"), borderRadius:8, cursor:"pointer", background:accChoice===m.acc.id?"#f5f3ff":"#fff"}}>
-                    <input type="radio" name="accMatch" value={m.acc.id} checked={accChoice===m.acc.id} onChange={function(){setAccChoice(m.acc.id);}} style={{accentColor:"#7c3aed"}}/>
-                    <span style={{flex:1, fontWeight:500, fontSize:14}}>{m.acc.name}</span>
-                    <span style={{fontSize:12, color:"#9ca3af"}}>{Math.round(m.score*100)}% match &middot; Tier {m.acc.tier}</span>
-                  </label>
-                );
-              })}
-              <label style={{display:"flex", alignItems:"center", gap:10, padding:"8px 12px", border:"1px solid "+(accChoice==="new"?"#7c3aed":"#e5e7eb"), borderRadius:8, cursor:"pointer", background:accChoice==="new"?"#f5f3ff":"#fff"}}>
-                <input type="radio" name="accMatch" value="new" checked={accChoice==="new"} onChange={function(){setAccChoice("new");}} style={{accentColor:"#7c3aed"}}/>
-                <span style={{flex:1, fontWeight:500, fontSize:14}}>Create new account: <em>{extracted.company||"Unknown"}</em></span>
-              </label>
-            </div>
-          </div>
-          <div style={{fontWeight:700, fontSize:14, color:"#1a1820", marginBottom:10}}>
-            Contacts found ({(extracted.contacts||[]).length})
-            <span style={{fontWeight:400, fontSize:12, color:"#9ca3af", marginLeft:8}}>Uncheck any to skip</span>
-          </div>
-          <div style={{display:"flex", flexDirection:"column", gap:6, maxHeight:280, overflowY:"auto", marginBottom:16}}>
-            {(extracted.contacts||[]).map(function(con, i) {
-              var dup = getDup(con);
-              var borderColor = dup && dup.type==="exact" ? "#fca5a5" : dup && dup.type==="possible" ? "#fde68a" : "#e5e7eb";
-              var bgColor = !sel[i] ? "#f9fafb" : dup && dup.type==="exact" ? "#fef2f2" : dup && dup.type==="possible" ? "#fefce8" : "#fff";
+          )}
+          <div style={{display:"flex", flexDirection:"column", gap:10, marginBottom:16}}>
+            {(extracted.contacts||[]).map(function(ec, i) {
+              var r = resolved[i] || {};
               return (
-                <label key={i} style={{display:"flex", alignItems:"flex-start", gap:10, padding:"10px 12px", border:"1px solid "+borderColor, borderRadius:8, cursor:"pointer", background:bgColor, opacity:sel[i]?1:0.5}}>
-                  <input type="checkbox" checked={!!sel[i]} onChange={function(e){setSel(function(p){var n=Object.assign({},p);n[i]=e.target.checked;return n;});}} style={{marginTop:2, accentColor:"#7c3aed"}}/>
-                  <div style={{flex:1}}>
-                    <div style={{fontWeight:600, fontSize:14, color:"#1a1820"}}>{con.name||"—"}</div>
-                    {con.title && <div style={{fontSize:12, color:"#6b7280"}}>{con.title}</div>}
-                    {con.email && <div style={{fontSize:12, color:"#6b7280"}}>{con.email}</div>}
-                    {con.phone && <div style={{fontSize:12, color:"#6b7280"}}>{con.phone}</div>}
+                <div key={i} style={{border:"1px solid #e5e7eb", borderRadius:10, padding:"12px 14px", background:"#fff"}}>
+                  <div style={{display:"flex", alignItems:"flex-start", justifyContent:"space-between", marginBottom:8}}>
+                    <div>
+                      <div style={{fontWeight:700, fontSize:14, color:"#1a1820"}}>{ec.name||"—"}</div>
+                      {ec.title && <div style={{fontSize:12, color:"#6b7280"}}>{ec.title}</div>}
+                      {ec.email && <div style={{fontSize:12, color:"#6b7280"}}>{ec.email}</div>}
+                      {ec.phone && <div style={{fontSize:12, color:"#6b7280"}}>{ec.phone}</div>}
+                    </div>
+                    <div style={{display:"flex", gap:6}}>
+                      {["update","add","skip"].map(function(act) {
+                        var labels = {update:"Update existing", add:"Add as new", skip:"Skip"};
+                        var active = r.action === act;
+                        var canUpdate = act==="update" && !r.con;
+                        return (
+                          <button key={act} disabled={canUpdate} onClick={function(){updateResolved(i,{action:act});}}
+                            style={{padding:"3px 10px", fontSize:11, borderRadius:6, cursor:canUpdate?"not-allowed":"pointer",
+                              border:"1px solid "+(active?"#7c3aed":"#e5e7eb"),
+                              background:active?"#7c3aed":"transparent",
+                              color:active?"#fff":canUpdate?"#d1d5db":"#6b7280",
+                              fontWeight:active?700:400}}>
+                            {labels[act]}
+                          </button>
+                        );
+                      })}
+                    </div>
                   </div>
-                  {dup && dup.type==="exact" && <span style={{fontSize:11, color:"#ef4444", fontWeight:600, whiteSpace:"nowrap"}}>Already exists</span>}
-                  {dup && dup.type==="possible" && <span style={{fontSize:11, color:"#d97706", fontWeight:600, whiteSpace:"nowrap"}}>Possible dup ({dup.pct}%)</span>}
-                </label>
+                  {r.action==="update" && r.con && (
+                    <div style={{fontSize:12, padding:"6px 10px", background:"#f5f3ff", borderRadius:6, color:"#5b21b6"}}>
+                      &#8594; Will update <strong>{r.con.name}</strong> @ {r.acc&&r.acc.name} — only empty fields filled in
+                    </div>
+                  )}
+                  {r.action==="update" && !r.con && (
+                    <div>
+                      <div style={{fontSize:12, color:"#ef4444", marginBottom:6}}>No matching contact found. Search manually:</div>
+                      <select onChange={function(e){
+                        var found = allConFlat.find(function(x){return x.con.id===e.target.value;});
+                        if(found) updateResolved(i,{con:found.con, acc:found.acc});
+                        else updateResolved(i,{action:"add"});
+                      }} style={{width:"100%", padding:"6px 8px", borderRadius:6, border:"1px solid #e5e7eb", fontSize:13}}>
+                        <option value="">-- Search contacts --</option>
+                        {allConFlat.sort(function(a,b){return a.con.name.localeCompare(b.con.name);}).map(function(x){
+                          return <option key={x.con.id} value={x.con.id}>{x.con.name} — {x.acc.name}</option>;
+                        })}
+                      </select>
+                    </div>
+                  )}
+                  {r.action==="add" && (
+                    <div style={{fontSize:12, marginTop:6}}>
+                      <span style={{color:"#6b7280"}}>Add to account: </span>
+                      <select value={r.targetAccId||"new"} onChange={function(e){updateResolved(i,{targetAccId:e.target.value});}}
+                        style={{padding:"4px 8px", borderRadius:6, border:"1px solid #e5e7eb", fontSize:12, marginLeft:4}}>
+                        <option value="new">+ Create new account{extracted.company?" ("+extracted.company+")":""}</option>
+                        {data.accounts.sort(function(a,b){return a.name.localeCompare(b.name);}).map(function(a){
+                          return <option key={a.id} value={a.id}>{a.name}</option>;
+                        })}
+                      </select>
+                    </div>
+                  )}
+                </div>
               );
             })}
           </div>
           <div style={{display:"flex", gap:10}}>
-            <button onClick={function(){setExtracted(null);setImgData(null);}} style={{padding:"8px 18px", background:"transparent", border:"1px solid #d1d5db", borderRadius:8, cursor:"pointer", fontSize:13, color:"#6b7280"}}>
+            <button onClick={function(){setExtracted(null);setImgData(null);setResolved([]);}} style={{padding:"8px 18px", background:"transparent", border:"1px solid #d1d5db", borderRadius:8, cursor:"pointer", fontSize:13, color:"#6b7280"}}>
               Start Over
             </button>
-            <button onClick={save} disabled={!selCount||!accChoice} style={{flex:1, padding:"10px 18px", background:(!selCount||!accChoice)?"#e5e7eb":"#7c3aed", border:"none", borderRadius:8, cursor:"pointer", fontWeight:700, fontSize:14, color:(!selCount||!accChoice)?"#9ca3af":"#fff"}}>
-              Save {selCount} Contact{selCount!==1?"s":""}
+            <button onClick={save} disabled={resolved.every(function(r){return r.action==="skip";})||resolved.length===0}
+              style={{flex:1, padding:"10px 18px", background:"#7c3aed", border:"none", borderRadius:8, cursor:"pointer", fontWeight:700, fontSize:14, color:"#fff"}}>
+              Save Changes
             </button>
           </div>
         </div>
@@ -850,10 +907,24 @@ function App() {
   const [showGenLog,    setShowGenLog]    = useState(false);
   const [genLogForm,    setGenLogForm]    = useState({type:"LinkedIn",otherType:"",notes:"",date:new Date().toISOString().slice(0,10),count:1,contactId:null,countAsCampaign:false});
   const [showCampaignForm, setShowCampaignForm] = useState(null); // contactId or null
+  const [syncStatus, setSyncStatus] = useState("idle"); // idle | saving | saved | error
   const fileRef = useRef();
 
   useEffect(()=>{loadData().then(setData);},[]);
-  useEffect(()=>{if(data)saveData(data);},[data]);
+  useEffect(()=>{
+    if(!data) return;
+    setSyncStatus("saving");
+    if(_saveTimer) clearTimeout(_saveTimer);
+    _saveTimer = setTimeout(async()=>{
+      try {
+        await saveData(data);
+        setSyncStatus("saved");
+        setTimeout(()=>setSyncStatus("idle"),2000);
+      } catch(e) {
+        setSyncStatus("error");
+      }
+    },1200);
+  },[data]);
 
   if(!data) return <div style={{background:C.bg,minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",color:C.textLo,fontFamily:C.sans,fontSize:18}}>Loading SalesOS...</div>;
 
@@ -1761,6 +1832,20 @@ function App() {
         </Field>
         <button style={{...btn(C.gold,"#0a0d13"),width:"100%",justifyContent:"center",marginBottom:16}} onClick={saveSettings}>Save Settings</button>
         <div style={divL}/>
+        <div style={{fontFamily:C.serif,fontSize:16,color:C.textHi,marginBottom:10}}>Change Password</div>
+        <Row>
+          <Field label="New Password" half><input type="password" style={inp} value={form.newPw||""} onChange={ff("newPw")} placeholder="Enter new password"/></Field>
+          <Field label="Confirm Password" half><input type="password" style={inp} value={form.confirmPw||""} onChange={ff("confirmPw")} placeholder="Confirm new password"/></Field>
+        </Row>
+        {form.pwErr&&<div style={{color:C.red,fontSize:12,marginBottom:8}}>{form.pwErr}</div>}
+        {form.pwOk&&<div style={{color:C.green,fontSize:12,marginBottom:8}}>Password updated!</div>}
+        <button style={{...btn(null,C.textLo,C.border2),width:"100%",justifyContent:"center",marginBottom:16}} onClick={async()=>{
+          if(!form.newPw||form.newPw.length<4){setForm(f=>({...f,pwErr:"Password must be at least 4 characters.",pwOk:false}));return;}
+          if(form.newPw!==form.confirmPw){setForm(f=>({...f,pwErr:"Passwords don't match.",pwOk:false}));return;}
+          await sb.from(SB_TABLE).upsert({id:"salesos_auth",payload:JSON.stringify({password:form.newPw}),updated_at:new Date().toISOString()});
+          setForm(f=>({...f,newPw:"",confirmPw:"",pwErr:null,pwOk:true}));
+        }}>Update Password</button>
+        <div style={divL}/>
         <div style={{fontFamily:C.serif,fontSize:16,color:C.textHi,marginBottom:10}}>Market / Sector Tags</div>
         <Field label="Edit list (one per line)">
           <textarea style={{...inp,resize:"vertical",height:180}} value={form.marketList!=null?form.marketList:allMarkets.join("\n")} onChange={ff("marketList")}/>
@@ -1807,51 +1892,125 @@ function App() {
   );
 
   // ── CALENDAR VIEW ────────────────────────────────────────────────────────
-  const CalendarView = ({data,setSA,setSJ,setView}) => {
+  const CalendarView = ({data,setSA,setSC,setSJ,setView,setAccTab}) => {
     const [calMonth, setCalMonth] = React.useState(() => {
       const n = new Date(); return {year:n.getFullYear(), month:n.getMonth()};
     });
+    const [selectedDay, setSelectedDay] = React.useState(null);
     const {year,month} = calMonth;
     const firstDay = new Date(year,month,1).getDay();
     const daysInMonth = new Date(year,month+1,0).getDate();
     const monthNames = ["January","February","March","April","May","June","July","August","September","October","November","December"];
-    const jobsByDay = {};
-    data.accounts.forEach(acc => {
-      acc.jobs.filter(j=>j.dueDate&&["Active Pursuit","Proposal Pending"].includes(j.status)).forEach(j=>{
+
+    // Build event map keyed by day number
+    const eventsByDay = {};
+    function addEvent(day, event) {
+      if(!eventsByDay[day]) eventsByDay[day] = [];
+      eventsByDay[day].push(event);
+    }
+
+    // 1. Job due dates (Active + Pending)
+    data.accounts.forEach(function(acc) {
+      acc.jobs.filter(function(j){return j.dueDate&&["Active Pursuit","Proposal Pending"].includes(j.status);}).forEach(function(j){
         const d = new Date(j.dueDate);
         if(d.getFullYear()===year && d.getMonth()===month){
-          const day = d.getDate();
-          if(!jobsByDay[day]) jobsByDay[day] = [];
-          jobsByDay[day].push({...j, accId:acc.id, accName:acc.name});
+          addEvent(d.getDate(), {type:"job", label:j.name, sub:acc.name, color:"#3b82f6", accId:acc.id, jobId:j.id});
         }
       });
     });
-    const outreachByDay = {};
-    (data.generalActivities||[]).forEach(a => {
+
+    // 2. Follow-up dates from contact activities
+    data.accounts.forEach(function(acc) {
+      acc.contacts.forEach(function(con) {
+        (con.activities||[]).forEach(function(act) {
+          if(!act.followUp) return;
+          const d = new Date(act.followUp);
+          if(d.getFullYear()===year && d.getMonth()===month){
+            addEvent(d.getDate(), {type:"followup", label:"Follow-up: "+con.name, sub:act.type+(act.notes?" · "+act.notes.slice(0,40):""), color:"#22c55e", accId:acc.id, conId:con.id});
+          }
+        });
+      });
+    });
+
+    // 3. Campaign touch due dates
+    data.accounts.forEach(function(acc) {
+      acc.contacts.forEach(function(con) {
+        const camp = con.campaign;
+        if(!camp||camp.status!=="active") return;
+        const next = camp.touches.find(function(t){return !t.completedAt;});
+        if(!next||!next.dueDate) return;
+        const d = new Date(next.dueDate);
+        if(d.getFullYear()===year && d.getMonth()===month){
+          addEvent(d.getDate(), {type:"campaign", label:camp.name+": "+next.label, sub:con.name+" @ "+acc.name, color:"#c8980a", accId:acc.id, conId:con.id});
+        }
+      });
+    });
+
+    // 4. General outreach log entries
+    (data.generalActivities||[]).forEach(function(a) {
       if(!a.date) return;
       const d = new Date(a.date);
       if(d.getFullYear()===year && d.getMonth()===month){
-        const day = d.getDate();
-        if(!outreachByDay[day]) outreachByDay[day] = [];
-        outreachByDay[day].push(a);
+        addEvent(d.getDate(), {type:"outreach", label:a.type, sub:a.notes, color:"#7c3aed"});
       }
     });
+
     const today = new Date();
-    const isToday = (d) => today.getFullYear()===year && today.getMonth()===month && today.getDate()===d;
-    const hasAnything = Object.keys(jobsByDay).length>0 || Object.keys(outreachByDay).length>0;
+    const isToday = function(d) { return today.getFullYear()===year && today.getMonth()===month && today.getDate()===d; };
     const cells = [];
     for(let i=0;i<firstDay;i++) cells.push(null);
     for(let d=1;d<=daysInMonth;d++) cells.push(d);
+
+    // Day breakout modal
+    const DayModal = function() {
+      if(!selectedDay) return null;
+      const events = eventsByDay[selectedDay]||[];
+      const dateStr = monthNames[month]+" "+selectedDay+", "+year;
+      return (
+        <div onClick={function(){setSelectedDay(null);}} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+          <div onClick={function(e){e.stopPropagation();}} style={{background:"#13181a",border:"1px solid #2a2f35",borderRadius:14,padding:"20px 24px",width:"100%",maxWidth:480,maxHeight:"80vh",overflowY:"auto"}}>
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16}}>
+              <div style={{fontFamily:"Georgia,serif",fontSize:18,color:"#f1f0f4"}}>{dateStr}</div>
+              <button onClick={function(){setSelectedDay(null);}} style={{background:"none",border:"none",color:"#6b7280",cursor:"pointer",fontSize:20,lineHeight:1}}>&times;</button>
+            </div>
+            {events.length===0 && <div style={{color:"#6b7280",fontSize:13}}>Nothing scheduled.</div>}
+            <div style={{display:"flex",flexDirection:"column",gap:10}}>
+              {events.map(function(ev, i) {
+                var typeLabels = {job:"Job Due",followup:"Follow-up",campaign:"Campaign Touch",outreach:"Outreach"};
+                return (
+                  <div key={i} onClick={function(){
+                    if(ev.accId&&ev.conId){ setSA(ev.accId); setSC(ev.conId); setAccTab&&setAccTab("contacts"); setView("contact"); setSelectedDay(null); }
+                    else if(ev.accId&&ev.jobId){ setSA(ev.accId); setSJ(ev.jobId); setView("job"); setSelectedDay(null); }
+                  }} style={{padding:"10px 14px",background:"#1a1f24",border:"1px solid "+ev.color+"40",borderRadius:8,cursor:(ev.accId&&(ev.conId||ev.jobId))?"pointer":"default"}}>
+                    <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
+                      <span style={{width:8,height:8,borderRadius:"50%",background:ev.color,flexShrink:0,display:"inline-block"}}></span>
+                      <span style={{fontSize:11,color:ev.color,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.05em"}}>{typeLabels[ev.type]||ev.type}</span>
+                    </div>
+                    <div style={{fontSize:14,fontWeight:600,color:"#f1f0f4",marginBottom:2}}>{ev.label}</div>
+                    {ev.sub && <div style={{fontSize:12,color:"#9ca3af"}}>{ev.sub}</div>}
+                    {(ev.accId&&(ev.conId||ev.jobId)) && <div style={{fontSize:11,color:ev.color,marginTop:4}}>Tap to open →</div>}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      );
+    };
+
     return (
       <div>
+        <DayModal/>
         <div style={{display:"flex",alignItems:"center",gap:16,marginBottom:16,flexWrap:"wrap"}}>
           <button onClick={()=>setCalMonth(p=>{ let m=p.month-1,y=p.year; if(m<0){m=11;y--;} return {year:y,month:m}; })} style={{...btn(null,C.textLo,C.border2),padding:"5px 12px"}}>‹</button>
           <span style={{fontFamily:C.serif,fontSize:20,color:C.textHi,minWidth:180,textAlign:"center"}}>{monthNames[month]} {year}</span>
           <button onClick={()=>setCalMonth(p=>{ let m=p.month+1,y=p.year; if(m>11){m=0;y++;} return {year:y,month:m}; })} style={{...btn(null,C.textLo,C.border2),padding:"5px 12px"}}>›</button>
           <button onClick={()=>{ const n=new Date(); setCalMonth({year:n.getFullYear(),month:n.getMonth()}); }} style={{...btn(null,C.gold,C.border2),padding:"5px 12px",fontSize:12}}>Today</button>
-          <div style={{display:"flex",alignItems:"center",gap:12,marginLeft:"auto",fontSize:11,color:C.textDim}}>
-            <span style={{display:"flex",alignItems:"center",gap:4}}><span style={{width:10,height:10,borderRadius:3,background:C.blue+"44",border:"1px solid "+C.blue+"60",display:"inline-block"}}></span>Active / Pending</span>
-            <span style={{display:"flex",alignItems:"center",gap:4}}><span style={{width:10,height:10,borderRadius:3,background:"#7c3aed22",border:"1px solid #7c3aed60",display:"inline-block"}}></span>Outreach</span>
+          <div style={{display:"flex",alignItems:"center",gap:12,marginLeft:"auto",fontSize:11,color:C.textDim,flexWrap:"wrap"}}>
+            <span style={{display:"flex",alignItems:"center",gap:4}}><span style={{width:8,height:8,borderRadius:"50%",background:"#3b82f6",display:"inline-block"}}></span>Job Due</span>
+            <span style={{display:"flex",alignItems:"center",gap:4}}><span style={{width:8,height:8,borderRadius:"50%",background:"#22c55e",display:"inline-block"}}></span>Follow-up</span>
+            <span style={{display:"flex",alignItems:"center",gap:4}}><span style={{width:8,height:8,borderRadius:"50%",background:"#c8980a",display:"inline-block"}}></span>Campaign</span>
+            <span style={{display:"flex",alignItems:"center",gap:4}}><span style={{width:8,height:8,borderRadius:"50%",background:"#7c3aed",display:"inline-block"}}></span>Outreach</span>
           </div>
         </div>
         <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:2,marginBottom:4}}>
@@ -1862,35 +2021,29 @@ function App() {
         <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:2}}>
           {cells.map((d,i)=>{
             if(!d) return <div key={"e"+i} style={{minHeight:90,background:C.surface,borderRadius:6,opacity:0.3}}/>;
-            const jobs = jobsByDay[d]||[];
-            const outreach = outreachByDay[d]||[];
+            const events = eventsByDay[d]||[];
+            const dots = {};
+            events.forEach(function(ev){ dots[ev.color]=true; });
             return (
-              <div key={d} style={{minHeight:90,background:isToday(d)?"#1a1f10":C.surface,border:"1px solid "+(isToday(d)?C.gold+"60":C.border),borderRadius:6,padding:4}}>
-                <div style={{fontSize:12,fontWeight:isToday(d)?700:400,color:isToday(d)?C.gold:C.textLo,marginBottom:3,textAlign:"right",paddingRight:2}}>{d}</div>
-                {jobs.map(j=>{
-                  const sc=STATUS_COLORS[j.status]||C.textDim;
-                  return (
-                    <div key={j.id} onClick={()=>navTo("job",{accId:j.accId,jobId:j.id})}
-                      style={{background:sc+"22",border:"1px solid "+sc+"50",borderRadius:4,padding:"2px 5px",marginBottom:2,cursor:"pointer",fontSize:10,color:sc,fontWeight:600,lineHeight:1.3,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}
-                      title={j.name+" — "+j.accName}>
-                      {j.name}
-                    </div>
-                  );
-                })}
-                {outreach.map(a=>(
-                  <div key={a.id}
-                    style={{background:"#7c3aed22",border:"1px solid #7c3aed50",borderRadius:4,padding:"2px 5px",marginBottom:2,fontSize:10,color:"#a78bfa",fontWeight:600,lineHeight:1.3,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}
-                    title={a.type+(a.notes?" — "+a.notes:"")+(a.count>1?" ("+a.count+" contacts)":"")}>
-                    {a.type}{a.count>1?" ×"+a.count:""}
-                  </div>
-                ))}
+              <div key={d} onClick={function(){setSelectedDay(d);}}
+                style={{minHeight:90,background:isToday(d)?"#1a1f10":C.surface,border:"1px solid "+(isToday(d)?C.gold+"60":C.border),borderRadius:6,padding:4,cursor:events.length>0?"pointer":"default",transition:"border-color 0.15s"}}
+                onMouseEnter={function(e){if(events.length>0) e.currentTarget.style.borderColor=C.gold+"80";}}
+                onMouseLeave={function(e){e.currentTarget.style.borderColor=isToday(d)?C.gold+"60":C.border;}}>
+                <div style={{fontSize:12,fontWeight:isToday(d)?700:400,color:isToday(d)?C.gold:C.textDim,marginBottom:4,textAlign:"right",paddingRight:2}}>{d}</div>
+                <div style={{display:"flex",flexDirection:"column",gap:2}}>
+                  {events.slice(0,3).map(function(ev,ei){
+                    return (
+                      <div key={ei} style={{fontSize:10,padding:"2px 5px",borderRadius:4,background:ev.color+"22",color:ev.color,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",fontWeight:500}}>
+                        {ev.label}
+                      </div>
+                    );
+                  })}
+                  {events.length>3 && <div style={{fontSize:10,color:C.textDim,paddingLeft:5}}>+{events.length-3} more</div>}
+                </div>
               </div>
             );
           })}
         </div>
-        {!hasAnything&&(
-          <div style={{textAlign:"center",color:C.textDim,fontSize:13,marginTop:40}}>No activity in {monthNames[month]}. Add job due dates or log outreach to see them here.</div>
-        )}
       </div>
     );
   };
@@ -2670,7 +2823,7 @@ function App() {
         })}
 
         {dashTab==="jobs"&&<JobListView jobSort={jobSort} inWindow={inWindow} jVal={jVal} setSA={setSA} setSJ={setSJ} setView={setView} data={data} statusFilter={statusFilter} setStatusFilter={setStatusFilter}/>}
-        {dashTab==="calendar"&&<CalendarView data={data} setSA={setSA} setSJ={setSJ} setView={setView}/>}
+        {dashTab==="calendar"&&<CalendarView data={data} setSA={setSA} setSC={setSC} setSJ={setSJ} setView={setView} setAccTab={setAccTab}/>}
         {dashTab==="map"&&<MapView data={data} setSA={setSA} setSJ={setSJ} setView={setView}/>}
         {dashTab==="feed"&&<ActivityFeedView feedFilter={feedFilter} data={data} setSA={setSA} setSC={setSC} setSJ={setSJ} setView={setView} setAccTab={setAccTab}/>}
         {dashTab==="campaigns"&&<CampaignPanel data={data} upd={upd} setModal={setModal} setForm={setForm} setSA={setSA} setSC={setSC} setView={setView} showCampaignForm={showCampaignForm} setShowCampaignForm={setShowCampaignForm}/>}
@@ -2977,8 +3130,12 @@ function App() {
           {winRate!==null&&<span style={{fontSize:12,color:C.textDim,borderLeft:`1px solid ${C.border}`,paddingLeft:10}}>{winRate}% win rate</span>}
           <span style={{color:C.textDim,fontSize:13,borderLeft:`1px solid ${C.border}`,paddingLeft:10}}>{userName}</span>
           <button onClick={exportData} style={{...btn(null,exportFlash?C.green:C.blue,exportFlash?C.green+"60":C.border2),minWidth:80,justifyContent:"center",transition:"all 0.3s"}}>{exportFlash?"✓ Saved!":"↓ Export"}</button>
+          {syncStatus==="saving"&&<span style={{fontSize:11,color:C.textDim}}>Syncing…</span>}
+          {syncStatus==="saved"&&<span style={{fontSize:11,color:C.green}}>✓ Synced</span>}
+          {syncStatus==="error"&&<span style={{fontSize:11,color:C.red}}>Sync error</span>}
           <button style={{...btn(null,"#7c3aed","#7c3aed40"),minWidth:110,justifyContent:"center"}} onClick={()=>setModal("contactImport")}>+ Import Contacts</button>
           <button style={btn(null,C.textLo,C.border2)} onClick={()=>{setForm({});setModal("settings");}}>Settings</button>
+          <button style={btn(null,C.red,"#3d1e1e")} onClick={()=>{localStorage.removeItem("salesos_authed");window.location.reload();}}>Sign Out</button>
         </div>
       </div>
       <div style={{maxWidth:1200,margin:"0 auto",padding:"32px 24px"}}>
@@ -2992,7 +3149,76 @@ function App() {
   );
 }
 
-ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+function LoginScreen({ onLogin }) {
+  const [pw, setPw] = React.useState("");
+  const [err, setErr] = React.useState(false);
+  const [checking, setChecking] = React.useState(false);
+
+  const attempt = async () => {
+    if (!pw.trim()) return;
+    setChecking(true);
+    setErr(false);
+    // Check password stored in Supabase settings row
+    try {
+      const { data } = await sb.from(SB_TABLE).select("payload").eq("id", "salesos_auth").single();
+      let storedPw = "fairco2024"; // default
+      if (data && data.payload) {
+        try { storedPw = JSON.parse(data.payload).password || storedPw; } catch(e){}
+      }
+      if (pw.trim() === storedPw) {
+        localStorage.setItem("salesos_authed", "1");
+        onLogin();
+      } else {
+        setErr(true);
+      }
+    } catch(e) {
+      // If no auth row exists, use default password
+      if (pw.trim() === "fairco2024") {
+        localStorage.setItem("salesos_authed", "1");
+        onLogin();
+      } else {
+        setErr(true);
+      }
+    }
+    setChecking(false);
+  };
+
+  return (
+    <div style={{minHeight:"100vh",background:"#f0eff0",display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'DM Sans','Helvetica Neue',sans-serif"}}>
+      <div style={{background:"#ffffff",border:"1px solid #e0dde0",borderRadius:16,padding:"40px 48px",width:"100%",maxWidth:380,textAlign:"center",boxShadow:"0 4px 24px rgba(0,0,0,0.06)"}}>
+        <div style={{fontFamily:"'DM Serif Display',Georgia,serif",fontSize:28,color:"#1a1820",marginBottom:4}}>
+          Sales<span style={{color:"#c8980a"}}>OS</span>
+        </div>
+        <div style={{color:"#7a7880",fontSize:13,marginBottom:32}}>Fairco Landscape Development</div>
+        <input
+          type="password"
+          placeholder="Password"
+          value={pw}
+          onChange={e=>{setPw(e.target.value);setErr(false);}}
+          onKeyDown={e=>e.key==="Enter"&&attempt()}
+          style={{width:"100%",background:"#f8f7f8",border:`1px solid ${err?"#dc2626":"#d0cdd0"}`,borderRadius:8,color:"#3a3840",padding:"10px 14px",fontSize:14,fontFamily:"'DM Sans',sans-serif",boxSizing:"border-box",outline:"none",marginBottom:8}}
+          autoFocus
+        />
+        {err && <div style={{color:"#dc2626",fontSize:12,marginBottom:8,textAlign:"left"}}>Incorrect password</div>}
+        <button
+          onClick={attempt}
+          disabled={checking}
+          style={{width:"100%",background:"#c8980a",color:"#0a0d13",border:"none",borderRadius:8,padding:"10px 0",fontSize:14,fontWeight:700,cursor:checking?"wait":"pointer",fontFamily:"'DM Sans',sans-serif",marginTop:4}}
+        >
+          {checking ? "Checking..." : "Sign In"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function Root() {
+  const [authed, setAuthed] = React.useState(!!localStorage.getItem("salesos_authed"));
+  if (!authed) return <LoginScreen onLogin={()=>setAuthed(true)} />;
+  return <App />;
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<Root/>);
 </script>
 </body>
 </html>
