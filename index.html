@@ -121,6 +121,8 @@ async function loadData() {
         if(a.jobs) a.jobs.forEach(j=>{if(j.status==="On Hold") j.status="Budget / Budgetary Only";});
         if (!a.jobs) a.jobs = [];
         if (!a.markets) a.markets = [];
+        if (!a.contacts) a.contacts = [];
+        a.contacts.forEach(con => { if(!con.campaign) con.campaign = null; });
         a.contacts.forEach(c => c.activities.forEach(act => { if (!("jobId" in act)) act.jobId = null; }));
       });
       return d;
@@ -432,6 +434,22 @@ function ContactImportModal({data, upd, closeModal}) {
     reader.readAsDataURL(file);
   }
 
+  React.useEffect(function() {
+    function handlePaste(e) {
+      if (imgData) return;
+      var items = e.clipboardData && e.clipboardData.items;
+      if (!items) return;
+      for (var i = 0; i < items.length; i++) {
+        if (items[i].type.startsWith("image/")) {
+          handleFile(items[i].getAsFile());
+          break;
+        }
+      }
+    }
+    window.addEventListener("paste", handlePaste);
+    return function() { window.removeEventListener("paste", handlePaste); };
+  }, [imgData]);
+
   async function extract() {
     if (!imgData) return;
     setLoading(true); setExtracted(null);
@@ -443,23 +461,30 @@ function ContactImportModal({data, upd, closeModal}) {
         headers: {"Content-Type":"application/json"},
         body: JSON.stringify({
           model: "claude-sonnet-4-20250514",
-          max_tokens: 1500,
-          system: 'Extract company and contact info from this image. Return ONLY valid JSON with shape: {"company":"Name","contacts":[{"name":"","title":"","email":"","phone":"","notes":""}]}. Empty string for missing fields. No markdown, no explanation.',
+          max_tokens: 2000,
           messages: [{
             role: "user",
             content: [
               {type:"image", source:{type:"base64", media_type:mediaType, data:base64}},
-              {type:"text", text:"Extract all contacts as JSON."}
+              {type:"text", text:"Look at this image and extract any company name and people you can see. Respond with ONLY a raw JSON object like this example (no markdown, no backticks, no explanation, just the JSON):\n{\"company\":\"Acme Corp\",\"contacts\":[{\"name\":\"John Smith\",\"title\":\"Project Manager\",\"email\":\"john@acme.com\",\"phone\":\"\",\"notes\":\"\"}]}\nIf you cannot find a company name use empty string. If you cannot find any contacts return an empty array. Use empty string for any field you cannot find."}
             ]
           }]
         })
       });
       var d = await res.json();
-      var txt = (d.content||[]).filter(function(b){return b.type==="text";}).map(function(b){return b.text;}).join("");
-      var parsed = JSON.parse(txt.replace(/```json|```/g,"").trim());
+      if(d.error) throw new Error(d.error.message||"API error");
+      var txt = (d.content||[]).filter(function(b){return b.type==="text";}).map(function(b){return b.text;}).join("").trim();
+      // Strip markdown fences if present
+      txt = txt.replace(/^```json\s*/,"").replace(/^```\s*/,"").replace(/\s*```$/,"").trim();
+      // Find JSON object in response in case there's extra text
+      var jsonMatch = txt.match(/\{[\s\S]*\}/);
+      if(!jsonMatch) throw new Error("No JSON found in response: "+txt.slice(0,100));
+      var parsed = JSON.parse(jsonMatch[0]);
+      if(!parsed.contacts) parsed.contacts = [];
+      if(!parsed.company) parsed.company = "";
       setExtracted(parsed);
     } catch(err) {
-      setExtracted({company:"", contacts:[], error:"Could not read image. Try a clearer screenshot."});
+      setExtracted({company:"", contacts:[], error:"Error: "+err.message});
     }
     setLoading(false);
   }
@@ -527,7 +552,7 @@ function ContactImportModal({data, upd, closeModal}) {
           style={{border:"2px dashed #d1d5db", borderRadius:12, padding:"48px 24px", textAlign:"center", cursor:"pointer", background:"#fafafa"}}>
           <div style={{fontSize:36, marginBottom:12}}>&#128203;</div>
           <div style={{fontWeight:700, fontSize:15, color:"#1a1820", marginBottom:6}}>Drop a screenshot here</div>
-          <div style={{fontSize:13, color:"#6b7280"}}>LinkedIn page, team page, business card, email signature</div>
+          <div style={{fontSize:13, color:"#6b7280"}}>Drop a file, click to browse, or <strong>Ctrl+V</strong> to paste from clipboard</div>
           <input ref={fileRef} type="file" accept="image/*" style={{display:"none"}} onChange={function(e){handleFile(e.target.files[0]);}}/>
         </div>
       )}
@@ -618,6 +643,172 @@ function ContactImportModal({data, upd, closeModal}) {
 }
 
 
+function CampaignForm({contactId, data, upd, onClose}) {
+  const allContacts = data.accounts.flatMap(a=>a.contacts.map(con=>({con,acc:a})));
+  const initConId = contactId || (allContacts[0]&&allContacts[0].con.id) || "";
+  const [conId, setConId] = React.useState(initConId);
+  const [name, setName] = React.useState("Cold Outreach");
+  const [touches, setTouches] = React.useState([
+    {label:"First Contact", daysAfterPrev:0},
+    {label:"Follow-up", daysAfterPrev:14},
+    {label:"Check-in", daysAfterPrev:21},
+    {label:"Touch 4", daysAfterPrev:21},
+    {label:"Touch 5", daysAfterPrev:30},
+    {label:"Touch 6", daysAfterPrev:30},
+  ]);
+
+  function addTouch() {
+    setTouches(function(t){ return [...t, {label:"Touch "+(t.length+1), daysAfterPrev:21}]; });
+  }
+  function removeTouch(i) {
+    setTouches(function(t){ return t.filter(function(_,idx){ return idx!==i; }); });
+  }
+  function updateTouch(i, key, val) {
+    setTouches(function(t){ var n=t.slice(); n[i]=Object.assign({},n[i],{[key]:val}); return n; });
+  }
+
+  function save() {
+    if(!conId||!name.trim()||touches.length<1) return;
+    var today = new Date().toISOString().slice(0,10);
+    // Calculate first due date (touch 1 starts today)
+    var campaignTouches = touches.map(function(t, i) {
+      return {label:t.label, daysAfterPrev:parseInt(t.daysAfterPrev)||0, completedAt:null, activityType:null, dueDate:i===0?today:null};
+    });
+    upd(function(d) {
+      d.accounts.forEach(function(acc) {
+        var con = acc.contacts.find(function(c){ return c.id===conId; });
+        if(con) {
+          con.campaign = {id:uid(), name:name.trim(), status:"active", createdAt:today, touches:campaignTouches};
+        }
+      });
+      return d;
+    });
+    onClose();
+  }
+
+  var chosenCon = allContacts.find(function(x){ return x.con.id===conId; });
+  var hasActiveCampaign = chosenCon && chosenCon.con.campaign && chosenCon.con.campaign.status==="active";
+
+  return (
+    <div>
+      <div style={{marginBottom:16}}>
+        <div style={{fontSize:11,color:"#6b7280",marginBottom:4}}>Contact</div>
+        <select value={conId} onChange={function(e){setConId(e.target.value);}} style={{width:"100%",padding:"8px 10px",borderRadius:8,border:"1px solid #e5e7eb",fontFamily:"inherit",fontSize:14,background:"#fff"}}>
+          {allContacts.sort(function(a,b){return a.con.name.localeCompare(b.con.name);}).map(function(x){
+            return <option key={x.con.id} value={x.con.id}>{x.con.name} — {x.acc.name}</option>;
+          })}
+        </select>
+        {hasActiveCampaign && <div style={{fontSize:12,color:"#ef4444",marginTop:6}}>⚠ This contact already has an active campaign. Starting a new one will replace it.</div>}
+      </div>
+      <div style={{marginBottom:16}}>
+        <div style={{fontSize:11,color:"#6b7280",marginBottom:4}}>Campaign Name</div>
+        <input value={name} onChange={function(e){setName(e.target.value);}} placeholder="e.g. Cold Outreach, Re-engagement" style={{width:"100%",padding:"8px 10px",borderRadius:8,border:"1px solid #e5e7eb",fontFamily:"inherit",fontSize:14,boxSizing:"border-box"}}/>
+      </div>
+      <div style={{marginBottom:12}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
+          <div style={{fontSize:11,color:"#6b7280",textTransform:"uppercase",letterSpacing:"0.06em"}}>Touches ({touches.length})</div>
+          <button onClick={addTouch} style={{padding:"3px 12px",background:"transparent",border:"1px solid #e5e7eb",borderRadius:6,cursor:"pointer",fontSize:12,color:"#6b7280"}}>+ Add Touch</button>
+        </div>
+        <div style={{display:"flex",flexDirection:"column",gap:8}}>
+          {touches.map(function(t, i) {
+            return (
+              <div key={i} style={{display:"grid",gridTemplateColumns:"auto 1fr auto",gap:10,alignItems:"center",padding:"10px 12px",background:"#f9fafb",borderRadius:8,border:"1px solid #e5e7eb"}}>
+                <div style={{width:28,height:28,borderRadius:"50%",background:"#7c3aed22",border:"2px solid #7c3aed60",display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:700,color:"#7c3aed",flexShrink:0}}>{i+1}</div>
+                <div style={{display:"grid",gridTemplateColumns:"1fr auto",gap:8,alignItems:"center"}}>
+                  <input value={t.label} onChange={function(e){updateTouch(i,"label",e.target.value);}} placeholder={"Touch "+(i+1)} style={{padding:"5px 8px",borderRadius:6,border:"1px solid #e5e7eb",fontFamily:"inherit",fontSize:13}}/>
+                  <div style={{display:"flex",alignItems:"center",gap:6,whiteSpace:"nowrap"}}>
+                    {i===0 ? <span style={{fontSize:12,color:"#9ca3af"}}>Starts today</span> : (
+                      <><input type="number" min="1" value={t.daysAfterPrev} onChange={function(e){updateTouch(i,"daysAfterPrev",e.target.value);}} style={{width:56,padding:"5px 8px",borderRadius:6,border:"1px solid #e5e7eb",fontFamily:"inherit",fontSize:13}}/><span style={{fontSize:12,color:"#9ca3af"}}>days after prev</span></>
+                    )}
+                  </div>
+                </div>
+                {touches.length>2&&<button onClick={function(){removeTouch(i);}} style={{background:"none",border:"none",color:"#9ca3af",cursor:"pointer",fontSize:16,padding:"0 4px",lineHeight:1}}>×</button>}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+      <button onClick={save} disabled={!conId||!name.trim()} style={{width:"100%",padding:"10px",background:(!conId||!name.trim())?"#e5e7eb":"#7c3aed",border:"none",borderRadius:8,cursor:"pointer",fontWeight:700,fontSize:14,color:(!conId||!name.trim())?"#9ca3af":"#fff"}}>
+        Start Campaign
+      </button>
+    </div>
+  );
+}
+
+function CampaignPanel({data, upd, setModal, setForm, setSA, setSC, setView, showCampaignForm, setShowCampaignForm}) {
+  const navTo2 = function(accId, conId) { setSA(accId); setSC(conId); setView("contact"); };
+
+  // Gather all active campaigns
+  const campaigns = [];
+  data.accounts.forEach(function(acc) {
+    acc.contacts.forEach(function(con) {
+      var camp = con.campaign;
+      if(!camp||camp.status!=="active") return;
+      var done = camp.touches.filter(function(t){return t.completedAt;}).length;
+      var next = camp.touches.find(function(t){return !t.completedAt;});
+      var diff = next&&next.dueDate ? Math.ceil((new Date(next.dueDate)-new Date())/86400000) : null;
+      campaigns.push({acc,con,camp,done,next,diff});
+    });
+  });
+  campaigns.sort(function(a,b){ return (a.diff===null?999:a.diff)-(b.diff===null?999:b.diff); });
+
+  return (
+    <div>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16}}>
+        <div style={{fontSize:13,color:"#6b7280"}}>{campaigns.length} active campaign{campaigns.length!==1?"s":""}</div>
+        <button onClick={function(){setShowCampaignForm("new"); setModal("startCampaign");}} style={{padding:"6px 16px",background:"#7c3aed",border:"none",borderRadius:8,cursor:"pointer",fontWeight:700,fontSize:13,color:"#fff"}}>+ New Campaign</button>
+      </div>
+      {campaigns.length===0 && (
+        <div style={{textAlign:"center",color:"#6b7280",fontSize:13,padding:"40px 0"}}>
+          No active campaigns. Start one from any contact page or click New Campaign above.
+        </div>
+      )}
+      <div style={{display:"flex",flexDirection:"column",gap:10}}>
+        {campaigns.map(function(item, i) {
+          var isOverdueItem = item.diff!==null && item.diff<0;
+          var isDueSoon = item.diff!==null && item.diff>=0 && item.diff<=7;
+          return (
+            <div key={i} style={{background:"#13181a",border:"1px solid "+(isOverdueItem?"#ef444440":isDueSoon?"#c8980a40":"#2a2f35"),borderRadius:10,padding:"14px 16px"}}>
+              <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",marginBottom:10}}>
+                <div>
+                  <div style={{fontWeight:700,fontSize:14,color:"#f1f0f4",marginBottom:2}}>{item.con.name} <span style={{fontWeight:400,color:"#6b7280",fontSize:13}}>@ {item.acc.name}</span></div>
+                  <div style={{fontSize:12,color:"#7c3aed"}}>{item.camp.name}</div>
+                </div>
+                <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                  <button onClick={function(){navTo2(item.acc.id,item.con.id);}} style={{padding:"4px 12px",background:"transparent",border:"1px solid #2a2f35",borderRadius:6,cursor:"pointer",fontSize:12,color:"#9ca3af"}}>View Contact</button>
+                  <button onClick={function(){upd(function(d){var con2=d.accounts.find(function(a){return a.id===item.acc.id;}).contacts.find(function(c){return c.id===item.con.id;});con2.campaign=null;return d;});}} style={{background:"none",border:"none",color:"#6b7280",cursor:"pointer",fontSize:12,padding:"4px 6px"}}>End</button>
+                </div>
+              </div>
+              <div style={{display:"flex",gap:6,marginBottom:10,flexWrap:"wrap"}}>
+                {item.camp.touches.map(function(t, ti) {
+                  var isDone = !!t.completedAt;
+                  var isCurrent = ti===item.done;
+                  return (
+                    <div key={ti} title={t.label+(isDone?" ✓ "+t.completedAt:t.dueDate?" due "+t.dueDate:"")} style={{width:30,height:30,borderRadius:"50%",background:isDone?"#22c55e22":"transparent",border:"2px solid "+(isDone?"#22c55e":isCurrent?"#c8980a":"#2a2f35"),display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:700,color:isDone?"#22c55e":isCurrent?"#c8980a":"#4b5563"}}>
+                      {isDone?"✓":ti+1}
+                    </div>
+                  );
+                })}
+              </div>
+              {item.next && (
+                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                  <div style={{fontSize:13,color:isOverdueItem?"#ef4444":isDueSoon?"#c8980a":"#9ca3af"}}>
+                    {isOverdueItem?"⚠ Overdue — ":isDueSoon?"Due soon — ":"Next: "}
+                    <strong style={{color:isOverdueItem?"#ef4444":isDueSoon?"#c8980a":"#d1d5db"}}>{item.next.label}</strong>
+                    {item.next.dueDate&&" · "+item.next.dueDate}
+                  </div>
+                  <div style={{fontSize:12,color:"#4b5563"}}>{item.done}/{item.camp.touches.length} touches done</div>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+
 function App() {
   const [data,    setData]    = useState(null);
   const [view,    setView]    = useState("dash");
@@ -652,7 +843,8 @@ function App() {
   const [reportFormat,  setReportFormat]  = useState("copy");
   const [reportCopied,  setReportCopied]  = useState(false);
   const [showGenLog,    setShowGenLog]    = useState(false);
-  const [genLogForm,    setGenLogForm]    = useState({type:"LinkedIn",notes:"",date:new Date().toISOString().slice(0,10),count:1});
+  const [genLogForm,    setGenLogForm]    = useState({type:"LinkedIn",otherType:"",notes:"",date:new Date().toISOString().slice(0,10),count:1,contactId:null,countAsCampaign:false});
+  const [showCampaignForm, setShowCampaignForm] = useState(null); // contactId or null
   const fileRef = useRef();
 
   useEffect(()=>{loadData().then(setData);},[]);
@@ -857,13 +1049,43 @@ function App() {
     return {mon,sun};
   };
   const saveGeneralActivity = () => {
+    const actType = genLogForm.type==="Other" ? (genLogForm.otherType||"Other") : genLogForm.type;
     upd(d=>{
       if(!d.generalActivities) d.generalActivities=[];
-      d.generalActivities.unshift({id:uid(),type:genLogForm.type,notes:genLogForm.notes,
-        date:genLogForm.date,count:parseInt(genLogForm.count)||1,createdAt:new Date().toISOString()});
+      d.generalActivities.unshift({id:uid(),type:actType,notes:genLogForm.notes,
+        date:genLogForm.date,count:parseInt(genLogForm.count)||1,
+        contactId:genLogForm.contactId||null,createdAt:new Date().toISOString()});
+      // If linked to a contact, also add to their activity log
+      if(genLogForm.contactId) {
+        d.accounts.forEach(acc=>{
+          const con = acc.contacts.find(c=>c.id===genLogForm.contactId);
+          if(con){
+            con.activities.unshift({id:uid(),type:actType,date:genLogForm.date,
+              notes:genLogForm.notes,followUp:null,jobId:null,fromOutreachLog:true});
+            // Advance campaign if opted in
+            if(genLogForm.countAsCampaign && con.campaign && con.campaign.status==="active"){
+              const camp = con.campaign;
+              const nextTouch = camp.touches.find(t=>!t.completedAt);
+              if(nextTouch){
+                nextTouch.completedAt = genLogForm.date;
+                nextTouch.activityType = actType;
+                // Set due date for next touch
+                const nextIdx = camp.touches.indexOf(nextTouch)+1;
+                if(nextIdx < camp.touches.length){
+                  const base = new Date(genLogForm.date);
+                  base.setDate(base.getDate()+camp.touches[nextIdx].daysAfterPrev);
+                  camp.touches[nextIdx].dueDate = base.toISOString().slice(0,10);
+                }
+                // Check if campaign complete
+                if(camp.touches.every(t=>t.completedAt)) camp.status="complete";
+              }
+            }
+          }
+        });
+      }
       return d;
     });
-    setGenLogForm({type:"LinkedIn",notes:"",date:new Date().toISOString().slice(0,10),count:1});
+    setGenLogForm({type:"LinkedIn",otherType:"",notes:"",date:new Date().toISOString().slice(0,10),count:1,contactId:null,countAsCampaign:false});
     setShowGenLog(false);
   };
   const delGeneralActivity = id => upd(d=>{
@@ -1227,7 +1449,11 @@ function App() {
   };
   const ActForm = ({isNew}) => {
     const jobs = gAcc()&&gAcc().jobs || [];
-    const [f, setF] = useState({type:form.type||"Email",date:form.date||new Date().toISOString().slice(0,10),jobId:form.jobId||"",notes:form.notes||"",followUp:form.followUp||""});
+    const con = gAcc() && gAcc().contacts.find(c=>c.id===selCon);
+    const campaign = con && con.campaign && con.campaign.status==="active" ? con.campaign : null;
+    const nextTouch = campaign ? campaign.touches.find(t=>!t.completedAt) : null;
+    const completedCount = campaign ? campaign.touches.filter(t=>t.completedAt).length : 0;
+    const [f, setF] = useState({type:form.type||"Email",date:form.date||new Date().toISOString().slice(0,10),jobId:form.jobId||"",notes:form.notes||"",followUp:form.followUp||"",countAsCampaign:false});
     const upF = k => e => setF(p=>({...p,[k]:e.target.value}));
     return (
       <>
@@ -1243,9 +1469,40 @@ function App() {
         </Field>
         <Field label="Notes"><textarea style={{...inp,resize:"vertical",height:90}} value={f.notes} onChange={upF("notes")} placeholder="What happened? Key takeaways, next steps..."/></Field>
         <Field label="Follow-Up Date (optional)"><input type="date" style={inp} value={f.followUp} onChange={upF("followUp")}/></Field>
+        {campaign && nextTouch && isNew && (
+          <div style={{background:"#1a1f10",border:"1px solid "+C.gold+"40",borderRadius:8,padding:"10px 14px",marginBottom:8}}>
+            <label style={{display:"flex",alignItems:"center",gap:10,cursor:"pointer"}}>
+              <input type="checkbox" checked={f.countAsCampaign} onChange={e=>setF(p=>({...p,countAsCampaign:e.target.checked}))} style={{accentColor:C.gold,width:16,height:16}}/>
+              <div>
+                <div style={{fontSize:13,color:C.gold,fontWeight:600}}>Count as Touch {completedCount+1} of {campaign.touches.length}</div>
+                <div style={{fontSize:11,color:C.textDim,marginTop:2}}>{campaign.name}</div>
+              </div>
+            </label>
+          </div>
+        )}
         <button style={{...btn(C.gold,"#0a0d13"),width:"100%",justifyContent:"center",marginTop:4}} onClick={()=>{
-          const b={type:f.type||"Email",date:f.date||new Date().toISOString().slice(0,10),notes:f.notes||"",followUp:f.followUp||null,jobId:f.jobId||null};
-          if(isNew) upd(d=>{d.accounts.find(a=>a.id===selAcc).contacts.find(c=>c.id===selCon).activities.unshift({id:uid(),...b});return d;});
+          const b={type:f.type||"Email",date:f.date||new Date().toISOString().slice(0,10),notes:f.notes||"",followUp:f.followUp||null,jobId:f.jobId||null,countAsCampaign:f.countAsCampaign};
+          if(isNew) upd(d=>{
+            const con=d.accounts.find(a=>a.id===selAcc).contacts.find(c=>c.id===selCon);
+            con.activities.unshift({id:uid(),...b});
+            // Advance campaign if opted in
+            if(f.countAsCampaign && con.campaign && con.campaign.status==="active"){
+              const camp=con.campaign;
+              const nextTouch=camp.touches.find(t=>!t.completedAt);
+              if(nextTouch){
+                nextTouch.completedAt=b.date;
+                nextTouch.activityType=b.type;
+                const nextIdx=camp.touches.indexOf(nextTouch)+1;
+                if(nextIdx<camp.touches.length){
+                  const base=new Date(b.date);
+                  base.setDate(base.getDate()+camp.touches[nextIdx].daysAfterPrev);
+                  camp.touches[nextIdx].dueDate=base.toISOString().slice(0,10);
+                }
+                if(camp.touches.every(t=>t.completedAt)) camp.status="complete";
+              }
+            }
+            return d;
+          });
           else upd(d=>{const acts=d.accounts.find(a=>a.id===selAcc).contacts.find(c=>c.id===selCon).activities;Object.assign(acts.find(x=>x.id===form.id),b);acts.sort((a,b)=>new Date(b.date)-new Date(a.date));return d;});
           closeModal();
         }}>{isNew?"Log Activity":"Save Changes"}</button>
@@ -1471,6 +1728,7 @@ function App() {
         }
 
                 if(modal==="contactImport") return <Modal title="Import Contacts from Screenshot" wide onClose={closeModal}><ContactImportModal data={data} upd={upd} closeModal={closeModal} /></Modal>;
+    if(modal==="startCampaign") return <Modal title="Start Touchpoint Campaign" wide onClose={closeModal}><CampaignForm contactId={showCampaignForm} data={data} upd={upd} onClose={closeModal}/></Modal>;
       if(modal==="settings") return (
       <Modal title="Settings" onClose={closeModal}>
         <Field label="Your Name"><input style={inp} value={form.userName!=null?form.userName:userName} onChange={ff("userName")}/></Field>
@@ -2034,16 +2292,33 @@ function App() {
             </div>
             {showGenLog&&(
               <div style={{background:C.bg,border:"1px solid "+C.border,borderRadius:10,padding:"14px 16px",marginBottom:14}}>
-                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr auto auto",gap:10,alignItems:"end"}}>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
                   <div>
                     <div style={{fontSize:11,color:C.textDim,marginBottom:4}}>Type</div>
-                    <select value={genLogForm.type} onChange={e=>setGenLogForm(f=>({...f,type:e.target.value}))} style={{...inp,width:"100%"}}>
+                    <select value={genLogForm.type} onChange={e=>setGenLogForm(f=>({...f,type:e.target.value,otherType:""}))} style={{...inp,width:"100%"}}>
                       {["LinkedIn","Cold Email","Networking Event","Trade Show","Cold Call","Referral Outreach","Other"].map(t=>(<option key={t}>{t}</option>))}
                     </select>
                   </div>
+                  {genLogForm.type==="Other" && (
+                    <div>
+                      <div style={{fontSize:11,color:C.textDim,marginBottom:4}}>Describe</div>
+                      <input value={genLogForm.otherType} onChange={e=>setGenLogForm(f=>({...f,otherType:e.target.value}))} placeholder="e.g. Sent thank you card" style={{...inp,width:"100%"}}/>
+                    </div>
+                  )}
+                </div>
+                <div style={{marginBottom:10}}>
+                  <div style={{fontSize:11,color:C.textDim,marginBottom:4}}>Notes</div>
+                  <input value={genLogForm.notes} onChange={e=>setGenLogForm(f=>({...f,notes:e.target.value}))} placeholder="e.g. LinkedIn requests to home builders in Scottsdale" style={{...inp,width:"100%"}}/>
+                </div>
+                <div style={{display:"grid",gridTemplateColumns:"1fr auto auto",gap:10,alignItems:"end",marginBottom:10}}>
                   <div>
-                    <div style={{fontSize:11,color:C.textDim,marginBottom:4}}>Notes</div>
-                    <input value={genLogForm.notes} onChange={e=>setGenLogForm(f=>({...f,notes:e.target.value}))} placeholder="e.g. LinkedIn requests to home builders in Scottsdale" style={{...inp,width:"100%"}}/>
+                    <div style={{fontSize:11,color:C.textDim,marginBottom:4}}>Specific Contact (optional)</div>
+                    <select value={genLogForm.contactId||""} onChange={e=>setGenLogForm(f=>({...f,contactId:e.target.value||null,countAsCampaign:false}))} style={{...inp,width:"100%"}}>
+                      <option value="">-- General / No specific contact --</option>
+                      {data.accounts.flatMap(a=>a.contacts.map(con=>({con,acc:a}))).sort((a,b)=>a.con.name.localeCompare(b.con.name)).map(({con,acc})=>(
+                        <option key={con.id} value={con.id}>{con.name} ({acc.name})</option>
+                      ))}
+                    </select>
                   </div>
                   <div>
                     <div style={{fontSize:11,color:C.textDim,marginBottom:4}}># Contacts</div>
@@ -2054,8 +2329,27 @@ function App() {
                     <input type="date" value={genLogForm.date} onChange={e=>setGenLogForm(f=>({...f,date:e.target.value}))} style={{...inp}}/>
                   </div>
                 </div>
-                <div style={{marginTop:12}}>
-                  <button onClick={saveGeneralActivity} disabled={!genLogForm.notes.trim()} style={{...btn(null,C.green,C.green+"40"),fontSize:13,padding:"6px 16px",opacity:genLogForm.notes.trim()?1:0.5}}>Save Activity</button>
+                {(()=>{
+                  if(!genLogForm.contactId) return null;
+                  const con = data.accounts.flatMap(a=>a.contacts).find(c=>c.id===genLogForm.contactId);
+                  const camp = con&&con.campaign&&con.campaign.status==="active"?con.campaign:null;
+                  const nextTouch = camp?camp.touches.find(t=>!t.completedAt):null;
+                  if(!camp||!nextTouch) return null;
+                  const done = camp.touches.filter(t=>t.completedAt).length;
+                  return (
+                    <div style={{background:"#1a1f10",border:"1px solid "+C.gold+"40",borderRadius:8,padding:"10px 14px",marginBottom:10}}>
+                      <label style={{display:"flex",alignItems:"center",gap:10,cursor:"pointer"}}>
+                        <input type="checkbox" checked={genLogForm.countAsCampaign} onChange={e=>setGenLogForm(f=>({...f,countAsCampaign:e.target.checked}))} style={{accentColor:C.gold,width:16,height:16}}/>
+                        <div>
+                          <div style={{fontSize:13,color:C.gold,fontWeight:600}}>Count as Touch {done+1} of {camp.touches.length}</div>
+                          <div style={{fontSize:11,color:C.textDim,marginTop:2}}>{camp.name}</div>
+                        </div>
+                      </label>
+                    </div>
+                  );
+                })()}
+                <div>
+                  <button onClick={saveGeneralActivity} disabled={!genLogForm.notes.trim()||(genLogForm.type==="Other"&&!genLogForm.otherType.trim())} style={{...btn(null,C.green,C.green+"40"),fontSize:13,padding:"6px 16px",opacity:(genLogForm.notes.trim()&&(genLogForm.type!=="Other"||genLogForm.otherType.trim()))?1:0.5}}>Save Activity</button>
                 </div>
               </div>
             )}
@@ -2177,9 +2471,37 @@ function App() {
         )}
         <MktBar/>
 
+        {/* -- Campaign Alerts Strip -- */}
+        {(()=>{
+          const overdue=[], dueSoon=[];
+          data.accounts.forEach(acc=>acc.contacts.forEach(con=>{
+            const camp=con.campaign;
+            if(!camp||camp.status!=="active") return;
+            const next=camp.touches.find(t=>!t.completedAt);
+            if(!next||!next.dueDate) return;
+            const diff=Math.ceil((new Date(next.dueDate)-new Date())/86400000);
+            const item={accId:acc.id,conId:con.id,accName:acc.name,conName:con.name,campName:camp.name,label:next.label,dueDate:next.dueDate,diff,touchNum:camp.touches.filter(t=>t.completedAt).length+1,total:camp.touches.length};
+            if(diff<0) overdue.push(item);
+            else if(diff<=7) dueSoon.push(item);
+          }));
+          const all=[...overdue,...dueSoon].slice(0,5);
+          if(!all.length) return null;
+          return (
+            <div style={{marginBottom:16,display:"flex",flexDirection:"column",gap:6}}>
+              {all.map((item,i)=>(
+                <div key={i} onClick={()=>navTo("contact",{accId:item.accId,conId:item.conId})} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 14px",background:C.surface,border:"1px solid "+(item.diff<0?C.red+"50":C.gold+"50"),borderRadius:8,cursor:"pointer"}}>
+                  <span style={{fontSize:11,fontWeight:700,color:item.diff<0?C.red:C.gold,minWidth:70}}>{item.diff<0?"OVERDUE":"DUE "+item.dueDate}</span>
+                  <span style={{fontSize:13,color:C.textHi,flex:1}}>Touch {item.touchNum}/{item.total} — <strong>{item.conName}</strong> @ {item.accName}</span>
+                  <span style={{fontSize:11,color:C.textDim}}>{item.label}</span>
+                </div>
+              ))}
+            </div>
+          );
+        })()}
+
         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",borderBottom:`1px solid ${C.border}`,marginBottom:28}}>
           <div style={{display:"flex"}}>
-            {[["pyramid","Tier Pyramid"],["list","Account List"],["jobs","Job List"],["calendar","Calendar"],["map","Map"],["feed","Activity Feed"]].map(([t,l])=>(
+            {[["pyramid","Tier Pyramid"],["list","Account List"],["jobs","Job List"],["calendar","Calendar"],["map","Map"],["feed","Activity Feed"],["campaigns","Campaigns"]].map(([t,l])=>(
               <button key={t} style={tabS(dashTab===t)} onClick={()=>setDashTab(t)}>{l}</button>
             ))}
           </div>
@@ -2330,6 +2652,7 @@ function App() {
         {dashTab==="calendar"&&<CalendarView data={data} setSA={setSA} setSJ={setSJ} setView={setView}/>}
         {dashTab==="map"&&<MapView data={data} setSA={setSA} setSJ={setSJ} setView={setView}/>}
         {dashTab==="feed"&&<ActivityFeedView feedFilter={feedFilter} data={data} setSA={setSA} setSC={setSC} setSJ={setSJ} setView={setView} setAccTab={setAccTab}/>}
+        {dashTab==="campaigns"&&<CampaignPanel data={data} upd={upd} setModal={setModal} setForm={setForm} setSA={setSA} setSC={setSC} setView={setView} showCampaignForm={showCampaignForm} setShowCampaignForm={setShowCampaignForm}/>}
 
       </div>
     );
@@ -2555,6 +2878,41 @@ function App() {
             <button style={{...btn(null,C.red,"#3d1e1e"),width:"100%",justifyContent:"center"}} onClick={()=>delCon(con.id)}>Remove Contact</button>
           </div>
           <div>
+            {/* Campaign Status */}
+            {(()=>{
+              const camp = con.campaign && con.campaign.status==="active" ? con.campaign : null;
+              if(!camp) return (
+                <div style={{marginBottom:16}}>
+                  <button onClick={()=>{setShowCampaignForm(con.id);setModal("startCampaign");}} style={{...btn(null,"#7c3aed","#7c3aed40"),fontSize:12,padding:"5px 14px"}}>+ Start Campaign</button>
+                </div>
+              );
+              const done = camp.touches.filter(t=>t.completedAt).length;
+              const nextTouch = camp.touches.find(t=>!t.completedAt);
+              const isOverdueTouch = nextTouch && nextTouch.dueDate && isOverdue(nextTouch.dueDate);
+              return (
+                <div style={{background:"#1a1f10",border:"1px solid "+(isOverdueTouch?C.red+"60":C.gold+"40"),borderRadius:10,padding:"12px 16px",marginBottom:16}}>
+                  <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
+                    <div>
+                      <span style={{fontWeight:700,fontSize:13,color:C.gold}}>{camp.name}</span>
+                      <span style={{fontSize:12,color:C.textDim,marginLeft:10}}>Touch {done} of {camp.touches.length} complete</span>
+                    </div>
+                    <button onClick={()=>upd(d=>{const con2=d.accounts.find(a=>a.id===selAcc).contacts.find(c=>c.id===selCon);con2.campaign=null;return d;})} style={{background:"none",border:"none",color:C.textDim,cursor:"pointer",fontSize:11,padding:"2px 6px"}}>End Campaign</button>
+                  </div>
+                  <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:8}}>
+                    {camp.touches.map((t,i)=>(
+                      <div key={i} style={{width:28,height:28,borderRadius:"50%",background:t.completedAt?C.green+"33":"transparent",border:"2px solid "+(t.completedAt?C.green:i===done?C.gold:C.border2),display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,color:t.completedAt?C.green:i===done?C.gold:C.textDim,fontWeight:700,title:t.label}} title={t.label+(t.completedAt?" ✓ "+t.completedAt:t.dueDate?" due "+t.dueDate:"")}>
+                        {i+1}
+                      </div>
+                    ))}
+                  </div>
+                  {nextTouch && (
+                    <div style={{fontSize:12,color:isOverdueTouch?C.red:C.textDim}}>
+                      {isOverdueTouch?"⚠ Overdue: ":"Next: "}<strong style={{color:isOverdueTouch?C.red:C.textHi}}>{nextTouch.label}</strong>{nextTouch.dueDate?" — "+nextTouch.dueDate:""}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
               <div style={{fontFamily:C.serif,fontSize:18,color:C.textHi}}>Activity Log</div>
               <button style={btn(C.gold,"#0a0d13")} onClick={()=>{setForm({type:"Email",date:new Date().toISOString().slice(0,10)});setModal("addAct");}}>+ Log Activity</button>
