@@ -458,7 +458,12 @@ function ContactImportModal({data, upd, closeModal}) {
       var mediaType = imgData.split(";")[0].split(":")[1];
       var res = await fetch("https://api.anthropic.com/v1/messages", {
         method: "POST",
-        headers: {"Content-Type":"application/json"},
+        headers: (function(){
+          var key = localStorage.getItem('fairco_api_key')||"";
+          var h = {"Content-Type":"application/json","anthropic-dangerous-direct-browser-access":"true"};
+          if(key) h["x-api-key"] = key;
+          return h;
+        })(),
         body: JSON.stringify({
           model: "claude-sonnet-4-20250514",
           max_tokens: 2000,
@@ -1018,6 +1023,7 @@ function App() {
     closeModal();
   };
   const saveSettings = () => {
+    if(form.apiKey!==undefined) localStorage.setItem('fairco_api_key', form.apiKey.trim());
     upd(d=>{d.settings={...d.settings,userName:form.userName||"Me",yellowThreshold:parseInt(form.yellowThreshold)||14,redThreshold:parseInt(form.redThreshold)||30};return d;});
     closeModal();
   };
@@ -1738,6 +1744,16 @@ function App() {
           <Field label="Green to Yellow (days)" half><input type="number" style={inp} value={form.yellowThreshold!=null?form.yellowThreshold:YT} onChange={ff("yellowThreshold")} min={1}/></Field>
           <Field label="Yellow to Red (days)" half><input type="number" style={inp} value={form.redThreshold!=null?form.redThreshold:RT} onChange={ff("redThreshold")} min={1}/></Field>
         </Row>
+        <Field label="Anthropic API Key">
+          <input
+            style={{...inp, fontFamily:"monospace", fontSize:12}}
+            type="password"
+            value={form.apiKey!==undefined ? form.apiKey : (localStorage.getItem('fairco_api_key')||"")}
+            onChange={ff("apiKey")}
+            placeholder="sk-ant-..."
+          />
+          <div style={{fontSize:11,color:C.textDim,marginTop:5}}>Used for Contact Importer. Get yours at console.anthropic.com → API Keys. Stored locally in your browser only.</div>
+        </Field>
         <button style={{...btn(C.gold,"#0a0d13"),width:"100%",justifyContent:"center",marginBottom:16}} onClick={saveSettings}>Save Settings</button>
         <div style={divL}/>
         <div style={{fontFamily:C.serif,fontSize:16,color:C.textHi,marginBottom:10}}>Market / Sector Tags</div>
