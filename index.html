@@ -21,12 +21,34 @@ select option{background:#ffffff;}
 @keyframes fadeInUp{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
 @keyframes spin{to{transform:rotate(360deg)}}
 .dup-card{animation:fadeInUp 0.18s ease both;}
+@media(max-width:768px){
+  .mobile-hide{display:none!important;}
+  .mobile-stack{flex-direction:column!important;align-items:stretch!important;}
+  .mobile-full{width:100%!important;max-width:100%!important;}
+  .mobile-col1{grid-template-columns:1fr!important;}
+  .mobile-pad{padding:16px!important;}
+  .mobile-pad-sm{padding:12px 16px!important;}
+  .mobile-wrap{flex-wrap:wrap!important;}
+}
+@media(min-width:769px){
+  .fab{display:none!important;}
+  .desktop-only-hide{display:none!important;}
+}
 </style>
 </head>
 <body>
 <div id="root"></div>
 <script type="text/babel">
 const {useState,useEffect,useRef} = React;
+const useIsMobile = () => {
+  const [mob, setMob] = useState(window.innerWidth <= 768);
+  useEffect(()=>{
+    const h = ()=>setMob(window.innerWidth<=768);
+    window.addEventListener('resize',h);
+    return ()=>window.removeEventListener('resize',h);
+  },[]);
+  return mob;
+};
 
 const STORAGE_KEY = "sales_os_v5";
 const SUPABASE_URL = "https://mxtmlgifukdlomuothzi.supabase.co";
@@ -65,48 +87,239 @@ const IMPORT_FIELDS = [
 ];
 
 const DEFAULT_DATA = {
-  accounts:[
-    {id:"a1",name:"Meridian Capital Group",industry:"Private Equity",markets:["Owner / Developer"],tier:1,dealSize:"",notes:"",
-     pros:["Strong Q4 budget","Warm intro via Harmon"],cons:["Long procurement cycle","3 competing bids"],
-     jobs:[
-       {id:"j1",name:"HQ Renovation Phase 1",status:"Proposal Pending",estimatedValue:"",location:"Downtown Phoenix",dueDate:"2026-03-15",notes:"Main lobby + 3 floors",
-        proposals:[{id:"p1",amount:"$240,000",submittedDate:"2026-02-10",notes:"Initial proposal submitted.",outcome:"Pending"}]},
-       {id:"j2",name:"Parking Structure Feasibility",status:"Active Pursuit",estimatedValue:"",location:"",dueDate:"",notes:"Budget study requested",proposals:[]}
-     ],
-     contacts:[
-       {id:"c1",name:"Sarah Whitfield",title:"VP of Operations",email:"s.whitfield@meridian.com",phone:"",notes:"",
-        activities:[
-          {id:"act1",type:"Proposal",date:"2026-02-10",notes:"Walked through Phase 1 proposal.",followUp:"2026-02-24",jobId:"j1"},
-          {id:"act2",type:"Lunch",date:"2026-01-28",notes:"Great lunch at Nobu. Decision maker.",followUp:null,jobId:null},
-        ]},
-       {id:"c2",name:"Derek Olson",title:"CFO",email:"d.olson@meridian.com",phone:"",notes:"",
-        activities:[
-          {id:"act3",type:"LinkedIn Connection Request",date:"2026-01-15",notes:"Connected after industry conference.",followUp:null,jobId:null},
-          {id:"act4",type:"Coffee",date:"2026-02-05",notes:"Intro meeting. Discussed parking structure.",followUp:"2026-03-01",jobId:"j2"},
-        ]}
-     ]},
-    {id:"a2",name:"Vantage Development LLC",industry:"Commercial Real Estate",markets:["Owner / Developer","Mixed-Use / Multifamily"],tier:1,dealSize:"",notes:"",
-     pros:["Referral from existing client"],cons:["Budget constraints Q1"],
-     jobs:[
-       {id:"j3",name:"Retail Buildout - Tower B",status:"Won",estimatedValue:"",location:"Scottsdale, AZ",dueDate:"",notes:"Awarded Jan 2026",
-        proposals:[{id:"p2",amount:"$185,000",submittedDate:"2025-12-01",notes:"Competitive bid.",outcome:"Won"}]},
-       {id:"j4",name:"Tower C Pre-Design",status:"Active Pursuit",estimatedValue:"",location:"Scottsdale, AZ",dueDate:"2026-04-01",notes:"Following Tower B success",proposals:[]}
-     ],
-     contacts:[
-       {id:"c3",name:"Marcus Chen",title:"Director of Projects",email:"m.chen@vantagedev.com",phone:"",notes:"",
-        activities:[
-          {id:"act5",type:"Happy Hour",date:"2026-02-14",notes:"Discussed Tower C timeline.",followUp:"2026-02-28",jobId:"j4"},
-          {id:"act6",type:"LinkedIn Message",date:"2026-02-01",notes:"Sent congratulations on Tower B award.",followUp:null,jobId:"j4"},
-        ]}
-     ]},
-    {id:"a3",name:"Ashford Industrial Partners",industry:"Manufacturing",markets:["Industrial","General Contractor"],tier:2,dealSize:"",notes:"",
-     pros:["Growing division","No incumbent vendor"],cons:["Price sensitive"],
-     jobs:[{id:"j5",name:"Warehouse Expansion Study",status:"Budget / Budgetary Only",estimatedValue:"",location:"Mesa, AZ",dueDate:"",notes:"ROM only",proposals:[{id:"p3",amount:"$25,000",submittedDate:"2026-02-18",notes:"ROM figure provided.",outcome:"Pending"}]}],
-     contacts:[{id:"c4",name:"Linda Park",title:"Procurement Manager",email:"l.park@ashfordindustrial.com",phone:"",notes:"",activities:[{id:"act7",type:"Email",date:"2026-02-18",notes:"Cold outreach with capabilities deck.",followUp:"2026-02-25",jobId:"j5"}]}]},
-    {id:"a4",name:"Northgate Healthcare Systems",industry:"Healthcare",markets:["Healthcare"],tier:2,dealSize:"",notes:"",pros:["Expanding to 3 new facilities"],cons:["Compliance complexity"],jobs:[],contacts:[]},
-    {id:"a5",name:"Elmwood Logistics Group",industry:"Logistics",markets:["Industrial"],tier:3,dealSize:"",notes:"",pros:["Long-term relationship potential"],cons:["Not actively looking"],jobs:[],contacts:[]},
+  generalActivities: [
+    {id:"ga1",type:"Market Event",notes:"Attended AGC Arizona annual dinner. Met several GC project managers. Good energy in the room — commercial pipeline looks strong for Q2.",date:"2026-03-05",count:1,contactId:null},
+    {id:"ga2",type:"LinkedIn Engagement",notes:"Commented on 4 posts from target accounts. Getting more visibility in the commercial landscape space.",date:"2026-03-03",count:4,contactId:null},
+    {id:"ga3",type:"Cold Outreach",notes:"Sent intro emails to 6 healthcare GCs ahead of new hospital campus announcements in the East Valley.",date:"2026-02-27",count:6,contactId:null},
+    {id:"ga4",type:"Market Event",notes:"NAIOP mixer at Scottsdale Quarter. Connected with two new developer contacts.",date:"2026-02-20",count:1,contactId:null},
+    {id:"ga5",type:"LinkedIn Engagement",notes:"Shared Fairco project spotlight post — strong engagement, 3 new connection requests from target accounts.",date:"2026-02-18",count:3,contactId:null},
   ],
-  settings:{userName:"Me",yellowThreshold:14,redThreshold:30,markets:[...DEFAULT_MARKETS]}
+  accounts:[
+    // TIER 1 - PRIORITY
+    {id:"a1",name:"Sunbelt Commercial Group",industry:"Commercial Real Estate",markets:["Owner / Developer","Mixed-Use / Multifamily"],tier:1,dealSize:"$500K+",
+     notes:"Top priority account. Strong relationship with VP. Two active jobs and a third in early conversation.",
+     pros:["Warm relationship — 2 year history","High volume repeat client","Decision maker accessible"],
+     cons:["Long internal approval process","Competitive bids required over $200K"],
+     jobs:[
+       {id:"j1",name:"Desert Ridge Mixed-Use Phase 2",status:"Proposal Pending",estimatedValue:"$420,000",location:"North Phoenix, AZ",dueDate:"2026-03-20",
+        notes:"Landscape + hardscape for 3-acre amenity deck. Final proposal submitted. Waiting on board approval.",
+        proposals:[
+          {id:"p1",amount:"$420,000",submittedDate:"2026-02-28",notes:"Full scope submitted. Competitive with two other firms.",outcome:"Pending"},
+          {id:"p1b",amount:"$395,000",submittedDate:"2026-02-10",notes:"Initial version — revised upward after scope expansion.",outcome:"Revised"}
+        ]},
+       {id:"j2",name:"Camelback Retail Plaza — Exterior",status:"Active Pursuit",estimatedValue:"$180,000",location:"Scottsdale, AZ",dueDate:"2026-04-15",
+        notes:"Hardscape + planting for 8-unit retail strip. Early conversations, site walk scheduled.",
+        proposals:[]},
+       {id:"j3",name:"Sunbelt HQ Campus Refresh",status:"Won",estimatedValue:"$95,000",location:"Tempe, AZ",dueDate:"",
+        notes:"Awarded Feb 2026. Currently in pre-construction. Great win — first corporate campus project with this client.",
+        proposals:[{id:"p2",amount:"$95,000",submittedDate:"2026-01-15",notes:"Competitive bid. Awarded based on Desert Ridge relationship.",outcome:"Won"}]},
+     ],
+     contacts:[
+       {id:"c1",name:"Jennifer Ramos",title:"VP of Development",email:"j.ramos@sunbeltcg.com",phone:"602-555-0142",
+        role:"Decision Maker",howMet:"Referral",
+        notes:"Primary decision maker. Very relationship-driven. Prefers in-person meetings over email.",
+        activities:[
+          {id:"act1",type:"Proposal",date:"2026-02-28",notes:"Presented Phase 2 proposal in person. She seemed very positive. Said board meets March 18.",followUp:"2026-03-18",jobId:"j1"},
+          {id:"act2",type:"Lunch",date:"2026-02-12",notes:"Quarterly check-in at Zinc Bistro. Discussed Phase 2 scope and HQ campus timeline.",followUp:null,jobId:"j1"},
+          {id:"act3",type:"Site Visit",date:"2026-01-30",notes:"Walked Desert Ridge site together. She confirmed full Phase 2 scope moving forward.",followUp:null,jobId:"j1"},
+          {id:"act4",type:"Coffee",date:"2026-01-08",notes:"New year kickoff meeting. She mentioned Camelback Plaza coming to bid in Q1.",followUp:null,jobId:null},
+        ],
+        campaign:{id:"camp1",name:"Phase 2 Close",status:"active",createdAt:"2026-02-28",touches:[
+          {label:"Send thank-you after proposal meeting",daysAfterPrev:0,completedAt:"2026-02-28",activityType:"Email",dueDate:"2026-02-28"},
+          {label:"Check in on board timeline",daysAfterPrev:7,completedAt:null,activityType:null,dueDate:"2026-03-07"},
+          {label:"Follow up post board meeting",daysAfterPrev:11,completedAt:null,activityType:null,dueDate:"2026-03-18"},
+          {label:"Final push / answer any questions",daysAfterPrev:5,completedAt:null,activityType:null,dueDate:"2026-03-23"},
+        ]}},
+       {id:"c2",name:"Tom Aguilar",title:"Project Manager",email:"t.aguilar@sunbeltcg.com",phone:"602-555-0198",
+        role:"Champion",howMet:"Existing Relationship",
+        notes:"Day-to-day contact on active jobs. Very organized. Advocates for us internally.",
+        activities:[
+          {id:"act5",type:"Phone Call",date:"2026-03-04",notes:"Quick call to confirm HQ campus pre-con meeting date. Set for March 12.",followUp:"2026-03-12",jobId:"j3"},
+          {id:"act6",type:"Email",date:"2026-02-20",notes:"Sent updated landscape plan drawings for HQ campus.",followUp:null,jobId:"j3"},
+        ],campaign:null},
+     ]},
+
+    {id:"a2",name:"Pinnacle Health Construction",industry:"Healthcare",markets:["Healthcare","General Contractor"],tier:1,dealSize:"$200K-$500K",
+     notes:"GC specializing in medical office and hospital builds. Referred by Jennifer Ramos. Two projects in pipeline.",
+     pros:["Warm referral — high trust entry","Healthcare sector growing fast in AZ","Repeat work model once in"],
+     cons:["Strict compliance requirements","Long lead times on approvals"],
+     jobs:[
+       {id:"j4",name:"East Valley Medical Campus — Site",status:"Active Pursuit",estimatedValue:"$310,000",location:"Gilbert, AZ",dueDate:"2026-05-01",
+        notes:"Large medical campus exterior. Native plant requirements. Bid due May 1.",proposals:[]},
+       {id:"j5",name:"Chandler Urgent Care — Exterior",status:"Proposal Pending",estimatedValue:"$68,000",location:"Chandler, AZ",dueDate:"2026-03-28",
+        notes:"Smaller project but good door opener. Proposal submitted.",
+        proposals:[{id:"p3",amount:"$68,000",submittedDate:"2026-03-01",notes:"First proposal with this GC.",outcome:"Pending"}]},
+       {id:"j6",name:"Scottsdale Medical Plaza",status:"Lost",estimatedValue:"$145,000",location:"Scottsdale, AZ",dueDate:"",
+        notes:"Lost to lower bid. Good learning — need to sharpen healthcare pricing.",
+        proposals:[{id:"p4",amount:"$145,000",submittedDate:"2025-11-15",notes:"Lost on price. Competitor came in 12% lower.",outcome:"Lost"}]},
+     ],
+     contacts:[
+       {id:"c3",name:"Brian Kowalski",title:"Senior Estimator",email:"b.kowalski@pinnaclehealth.com",phone:"480-555-0233",
+        role:"Budget Holder",howMet:"Referral",
+        notes:"Controls bid packages. Very numbers-focused. Respond fast to his emails.",
+        activities:[
+          {id:"act7",type:"Coffee",date:"2026-03-02",notes:"Intro meeting. Discussed East Valley campus scope. He liked our native salvage capabilities.",followUp:"2026-03-16",jobId:"j4"},
+          {id:"act8",type:"Email",date:"2026-02-24",notes:"Sent Chandler UC proposal.",followUp:null,jobId:"j5"},
+          {id:"act9",type:"LinkedIn Connection Request",date:"2026-02-10",notes:"Connected after referral from Jennifer Ramos.",followUp:null,jobId:null},
+        ],campaign:{id:"camp2",name:"East Valley Pursuit",status:"active",createdAt:"2026-03-02",touches:[
+          {label:"Send capabilities deck + native salvage overview",daysAfterPrev:0,completedAt:"2026-03-02",activityType:"Email",dueDate:"2026-03-02"},
+          {label:"Schedule site walk",daysAfterPrev:10,completedAt:null,activityType:null,dueDate:"2026-03-12"},
+          {label:"Submit preliminary scope",daysAfterPrev:14,completedAt:null,activityType:null,dueDate:"2026-03-26"},
+          {label:"Follow up on bid timeline",daysAfterPrev:21,completedAt:null,activityType:null,dueDate:"2026-04-16"},
+        ]}},
+       {id:"c4",name:"Rachel Torres",title:"Project Executive",email:"r.torres@pinnaclehealth.com",phone:"480-555-0291",
+        role:"Decision Maker",howMet:"Referral",
+        notes:"Ultimately signs off on subcontractor selections. Met briefly at referral intro.",
+        activities:[
+          {id:"act10",type:"Lunch",date:"2026-03-06",notes:"Relationship lunch. Discussed Pinnacle's 2026 pipeline — 6 projects in AZ this year.",followUp:"2026-04-06",jobId:null},
+        ],campaign:null},
+     ]},
+
+    {id:"a3",name:"Meridian Capital Group",industry:"Private Equity",markets:["Owner / Developer"],tier:1,dealSize:"$100K-$300K",
+     notes:"Private equity firm developing mixed-use and office assets in metro Phoenix.",
+     pros:["Strong Q4 budget","Warm intro via referral","Multiple projects in pipeline"],
+     cons:["Long procurement cycle","3 competing bids on major work"],
+     jobs:[
+       {id:"j7",name:"Biltmore Office Tower — Exterior",status:"Won",estimatedValue:"$210,000",location:"Phoenix, AZ",dueDate:"",
+        notes:"Awarded Q4 2025. Project wrapping up. Strong performance — asking for referral.",
+        proposals:[{id:"p5",amount:"$210,000",submittedDate:"2025-09-20",notes:"Won competitive bid.",outcome:"Won"}]},
+       {id:"j8",name:"Camelback Corridor Mixed-Use",status:"Active Pursuit",estimatedValue:"$380,000",location:"Phoenix, AZ",dueDate:"2026-04-30",
+        notes:"Large mixed-use development. Early design phase. Need to stay front of mind.",proposals:[]},
+     ],
+     contacts:[
+       {id:"c5",name:"Sarah Whitfield",title:"VP of Operations",email:"s.whitfield@meridian.com",phone:"602-555-0142",
+        role:"Decision Maker",howMet:"Referral",notes:"Primary decision maker. Very relationship driven.",
+        activities:[
+          {id:"act11",type:"Lunch",date:"2026-02-26",notes:"Celebrated Biltmore tower completion. She mentioned Camelback Corridor moving to design in April.",followUp:"2026-04-01",jobId:"j8"},
+          {id:"act12",type:"Site Visit",date:"2026-02-05",notes:"Final walkthrough of Biltmore Tower exterior. Client very happy with the result.",followUp:null,jobId:"j7"},
+        ],campaign:null},
+       {id:"c6",name:"Derek Olson",title:"CFO",email:"d.olson@meridian.com",phone:"",
+        role:"Budget Holder",howMet:"Existing Relationship",notes:"Controls capital allocation. Harder to reach but important to keep warm.",
+        activities:[
+          {id:"act13",type:"LinkedIn Message",date:"2026-02-15",notes:"Congratulated on Biltmore project completion announcement on LinkedIn.",followUp:null,jobId:null},
+          {id:"act14",type:"Coffee",date:"2026-01-10",notes:"Year-start meeting. Confirmed Camelback Corridor is in the 2026 budget.",followUp:null,jobId:"j8"},
+        ],campaign:null},
+     ]},
+
+    // TIER 2 - DEVELOPING
+    {id:"a4",name:"Vantage Development LLC",industry:"Commercial Real Estate",markets:["Owner / Developer","Mixed-Use / Multifamily"],tier:2,dealSize:"$100K-$250K",
+     notes:"Active developer in Scottsdale. Won first project with them — building the relationship toward repeat work.",
+     pros:["First project won — proof of concept","Active pipeline in Scottsdale","Referral potential"],
+     cons:["Budget constraints Q1","Still proving ourselves"],
+     jobs:[
+       {id:"j9",name:"Scottsdale Waterfront — Phase 1",status:"Won",estimatedValue:"$185,000",location:"Scottsdale, AZ",dueDate:"",
+        notes:"Awarded Jan 2026. Currently in construction.",
+        proposals:[{id:"p6",amount:"$185,000",submittedDate:"2025-12-01",notes:"Competitive bid. First project with Vantage.",outcome:"Won"}]},
+       {id:"j10",name:"Scottsdale Waterfront — Phase 2",status:"Active Pursuit",estimatedValue:"$220,000",location:"Scottsdale, AZ",dueDate:"2026-05-15",
+        notes:"Continuation of Phase 1. Strong position given current performance on site.",proposals:[]},
+     ],
+     contacts:[
+       {id:"c7",name:"Marcus Chen",title:"Director of Projects",email:"m.chen@vantagedev.com",phone:"480-555-0177",
+        role:"Champion",howMet:"Cold Outreach",notes:"Day-to-day on Phase 1. Good communicator. Will advocate internally for Phase 2.",
+        activities:[
+          {id:"act15",type:"Site Visit",date:"2026-03-03",notes:"Site visit on Phase 1 progress. He mentioned Phase 2 design is being finalized.",followUp:"2026-03-17",jobId:"j10"},
+          {id:"act16",type:"Happy Hour",date:"2026-02-14",notes:"Drinks at hotel bar. Good relationship building.",followUp:null,jobId:null},
+        ],campaign:null},
+     ]},
+
+    {id:"a5",name:"Ashford Industrial Partners",industry:"Manufacturing",markets:["Industrial","General Contractor"],tier:2,dealSize:"$50K-$150K",
+     notes:"Industrial GC with multiple warehouse projects in Mesa and Chandler. Price sensitive but high volume.",
+     pros:["Growing division","No incumbent landscape vendor","Multiple projects per year"],
+     cons:["Very price sensitive","Slow to respond"],
+     jobs:[
+       {id:"j11",name:"Mesa Distribution Center — Site",status:"Budget / Budgetary Only",estimatedValue:"$85,000",location:"Mesa, AZ",dueDate:"",
+        notes:"ROM only at this stage. Project moves to design in Q3.",
+        proposals:[{id:"p7",amount:"$85,000",submittedDate:"2026-02-18",notes:"Budgetary figure only. Not a formal bid.",outcome:"Pending"}]},
+       {id:"j12",name:"Chandler Warehouse Expansion",status:"Active Pursuit",estimatedValue:"$62,000",location:"Chandler, AZ",dueDate:"2026-04-20",
+        notes:"Smaller project but foot in the door. Bid due April 20.",proposals:[]},
+     ],
+     contacts:[
+       {id:"c8",name:"Linda Park",title:"Procurement Manager",email:"l.park@ashfordindustrial.com",phone:"",
+        role:"Technical Contact",howMet:"Cold Outreach",notes:"Controls RFP process. Very process-oriented. Send clean proposals.",
+        activities:[
+          {id:"act17",type:"Email",date:"2026-03-01",notes:"Sent Chandler warehouse RFP response.",followUp:"2026-03-15",jobId:"j12"},
+          {id:"act18",type:"Phone Call",date:"2026-02-18",notes:"Intro call. She confirmed Mesa Distribution Center is moving to bid in Q3.",followUp:null,jobId:"j11"},
+        ],campaign:null},
+     ]},
+
+    {id:"a6",name:"Northgate Healthcare Systems",industry:"Healthcare",markets:["Healthcare"],tier:2,dealSize:"$75K-$200K",
+     notes:"Hospital system expanding to 3 new East Valley locations. Long sales cycle but major opportunity.",
+     pros:["Expanding to 3 new facilities","No existing landscape relationship","High project value"],
+     cons:["Compliance complexity","Long internal procurement process"],
+     jobs:[
+       {id:"j13",name:"Gilbert Medical Center — Exterior",status:"Active Pursuit",estimatedValue:"$195,000",location:"Gilbert, AZ",dueDate:"2026-06-01",
+        notes:"Largest of the 3 facilities. Native plant requirements. Still in design phase.",proposals:[]},
+     ],
+     contacts:[
+       {id:"c9",name:"Paul Nguyen",title:"Director of Facilities",email:"p.nguyen@northgatehc.com",phone:"480-555-0312",
+        role:"Influencer",howMet:"Market Event",notes:"Met at healthcare construction conference. Warm lead. Needs to involve procurement formally.",
+        activities:[
+          {id:"act19",type:"Coffee",date:"2026-02-28",notes:"Good intro meeting. He wants to see our healthcare portfolio. Sending this week.",followUp:"2026-03-14",jobId:"j13"},
+          {id:"act20",type:"Market Event",date:"2026-02-20",notes:"Met at ASHE conference in Scottsdale.",followUp:null,jobId:null},
+        ],campaign:null},
+     ]},
+
+    {id:"a7",name:"Desert West Construction",industry:"Construction",markets:["General Contractor","Design-Build"],tier:2,dealSize:"$100K-$300K",
+     notes:"Mid-size GC doing design-build commercial work. Strong repeat potential if we get on their preferred vendor list.",
+     pros:["Design-build model — early involvement possible","5-6 projects per year","Owner is relationship-driven"],
+     cons:["Currently have a landscape relationship","Need a strong intro project"],
+     jobs:[
+       {id:"j14",name:"Tempe Tech Campus — Landscape",status:"Proposal Pending",estimatedValue:"$240,000",location:"Tempe, AZ",dueDate:"2026-03-25",
+        notes:"First bid with Desert West. Proposal submitted March 1.",
+        proposals:[{id:"p8",amount:"$240,000",submittedDate:"2026-03-01",notes:"First proposal with this GC. Competitive.",outcome:"Pending"}]},
+     ],
+     contacts:[
+       {id:"c10",name:"Greg Holloway",title:"President",email:"g.holloway@desertwc.com",phone:"602-555-0388",
+        role:"Decision Maker",howMet:"Event / Conference",notes:"Owner/operator. Makes all major subcontractor decisions personally.",
+        activities:[
+          {id:"act21",type:"Lunch",date:"2026-02-22",notes:"First real meeting. Took him to lunch at Mastro's. He's interested but loyal to current vendor. Needs a reason to switch.",followUp:"2026-03-25",jobId:"j14"},
+          {id:"act22",type:"Market Event",date:"2026-01-18",notes:"Met at AGC mixer. Got his card.",followUp:null,jobId:null},
+        ],campaign:null},
+     ]},
+
+    // TIER 3 - LONG GAME
+    {id:"a8",name:"Elmwood Logistics Group",industry:"Logistics",markets:["Industrial"],tier:3,dealSize:"",
+     notes:"Large logistics company expanding warehouse footprint in AZ. Not actively looking yet but 2027 could be big.",
+     pros:["Long-term relationship potential","Large footprint — multiple sites"],cons:["Not actively looking","18-24 month runway"],
+     jobs:[],
+     contacts:[
+       {id:"c11",name:"Steve Karas",title:"VP of Real Estate",email:"s.karas@elmwoodlogistics.com",phone:"",
+        role:"Unknown",howMet:"LinkedIn",notes:"Connected on LinkedIn. Occasional engagement. Keep warm.",
+        activities:[
+          {id:"act23",type:"LinkedIn Engagement",date:"2026-02-10",notes:"Liked and commented on his post about AZ expansion announcement.",followUp:null,jobId:null},
+        ],campaign:null},
+     ]},
+
+    {id:"a9",name:"Skyline Home Builders",industry:"Residential",markets:["Home Builder"],tier:3,dealSize:"$50K-$150K",
+     notes:"Regional home builder doing master-planned communities. Potential for common area landscape work.",
+     pros:["High volume if we break in","Common area work is repeatable"],cons:["Incumbent vendor entrenched","Margin pressure in residential"],
+     jobs:[
+       {id:"j15",name:"Laveen Ranch — Common Areas",status:"Budget / Budgetary Only",estimatedValue:"$110,000",location:"Laveen, AZ",dueDate:"",
+        notes:"ROM requested for community planning. No formal bid yet.",
+        proposals:[{id:"p9",amount:"$110,000",submittedDate:"2026-01-20",notes:"Budgetary only. Early stage.",outcome:"Pending"}]},
+     ],
+     contacts:[
+       {id:"c12",name:"Amanda Cole",title:"Land Development Manager",email:"a.cole@skylinehb.com",phone:"",
+        role:"Influencer",howMet:"Cold Outreach",notes:"Manages subcontractor relationships for land division. Cold outreach — still warming up.",
+        activities:[
+          {id:"act24",type:"Email",date:"2026-02-05",notes:"Sent intro email with Fairco overview and residential portfolio.",followUp:"2026-03-05",jobId:null},
+          {id:"act25",type:"LinkedIn Connection Request",date:"2026-01-28",notes:"Sent connection request — accepted within a day.",followUp:null,jobId:null},
+        ],campaign:null},
+     ]},
+
+    {id:"a10",name:"Crestview Capital Partners",industry:"Private Equity",markets:["Owner / Developer","Mixed-Use / Multifamily"],tier:3,dealSize:"",
+     notes:"PE firm acquiring and repositioning commercial assets in Phoenix and Tucson. Long runway but watching closely.",
+     pros:["Acquisition pace accelerating","No incumbent relationship"],cons:["Very early stage","Need a warm intro"],
+     jobs:[],
+     contacts:[
+       {id:"c13",name:"Tyler Marsh",title:"Director of Acquisitions",email:"t.marsh@crestviewcp.com",phone:"",
+        role:"Unknown",howMet:"LinkedIn",notes:"Connected through mutual LinkedIn contact. Has not responded to outreach yet.",
+        activities:[
+          {id:"act26",type:"LinkedIn Message",date:"2026-02-12",notes:"Sent intro message referencing their recent Paradise Valley acquisition.",followUp:"2026-03-12",jobId:null},
+        ],campaign:null},
+     ]},
+  ],
+  settings:{userName:"Alex Rivera",yellowThreshold:14,redThreshold:30,markets:[...DEFAULT_MARKETS]}
 };
 
 function migrateData(d) {
@@ -871,7 +1084,7 @@ function CampaignPanel({data, upd, setModal, setForm, setSA, setSC, setView, sho
 }
 
 
-function App() {
+function App({demoMode, onSignOut}) {
   const [data,    setData]    = useState(null);
   const [view,    setView]    = useState("dash");
   const [backStack, setBackStack] = useState([]);
@@ -910,9 +1123,15 @@ function App() {
   const [syncStatus, setSyncStatus] = useState("idle"); // idle | saving | saved | error
   const fileRef = useRef();
 
-  useEffect(()=>{loadData().then(setData);},[]);
   useEffect(()=>{
-    if(!data) return;
+    if(demoMode) {
+      setData(JSON.parse(JSON.stringify(DEFAULT_DATA)));
+    } else {
+      loadData().then(setData);
+    }
+  },[]);
+  useEffect(()=>{
+    if(!data || demoMode) return;
     setSyncStatus("saving");
     if(_saveTimer) clearTimeout(_saveTimer);
     _saveTimer = setTimeout(async()=>{
@@ -2396,14 +2615,14 @@ function App() {
     const tierGroups = TIERS.map(tier=>({tier,accs:sortAlpha(filteredAccs.filter(a=>a.tier===tier))}));
     return (
       <div>
-        <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",marginBottom:24}}>
+        <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",marginBottom:24,flexWrap:isMobile?"wrap":"nowrap",gap:isMobile?12:0}}>
           <div>
-            <div style={{fontFamily:C.serif,fontSize:28,color:C.textHi,marginBottom:6,letterSpacing:"-0.02em"}}>Target Account Overview</div>
+            <div style={{fontFamily:C.serif,fontSize:isMobile?22:28,color:C.textHi,marginBottom:6,letterSpacing:"-0.02em"}}>Target Account Overview</div>
             <div style={{color:C.textDim,fontSize:13}}>{filteredAccs.length} accounts / {filteredAccs.reduce((n,a)=>n+a.contacts.length,0)} contacts / {filteredAccs.reduce((n,a)=>n+a.jobs.length,0)} jobs / {alerts.length} overdue</div>
           </div>
           <div style={{display:"flex",gap:8}}>
-            <button style={{...btn(null,C.green,C.border2)}} onClick={()=>fileRef.current.click()}>Import Excel</button>
-            <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" style={{display:"none"}} onChange={handleFile}/>
+            {!isMobile&&<button style={{...btn(null,C.green,C.border2)}} onClick={()=>fileRef.current.click()}>Import Excel</button>}
+            {!isMobile&&<input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" style={{display:"none"}} onChange={handleFile}/>}
             <button style={btn(C.gold,"#0a0d13")} onClick={()=>{setForm({tier:2,markets:[]});setModal("addAcc");}}>+ Add Account</button>
           </div>
         </div>
@@ -2673,10 +2892,13 @@ function App() {
           );
         })()}
 
-        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",borderBottom:`1px solid ${C.border}`,marginBottom:28}}>
-          <div style={{display:"flex"}}>
-            {[["pyramid","Tier Pyramid"],["list","Account List"],["jobs","Job List"],["calendar","Calendar"],["map","Map"],["feed","Activity Feed"],["campaigns","Campaigns"]].map(([t,l])=>(
-              <button key={t} style={tabS(dashTab===t)} onClick={()=>setDashTab(t)}>{l}</button>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",borderBottom:`1px solid ${C.border}`,marginBottom:28,overflowX:isMobile?"auto":"visible"}}>
+          <div style={{display:"flex",flexShrink:0}}>
+            {(isMobile
+              ? [["pyramid","Pyramid"],["list","Accounts"],["jobs","Jobs"],["calendar","Cal"],["campaigns","Campaigns"]]
+              : [["pyramid","Tier Pyramid"],["list","Account List"],["jobs","Job List"],["calendar","Calendar"],["map","Map"],["feed","Activity Feed"],["campaigns","Campaigns"]]
+            ).map(([t,l])=>(
+              <button key={t} style={{...tabS(dashTab===t),whiteSpace:"nowrap",padding:isMobile?"9px 12px":"9px 18px",fontSize:isMobile?12:13}} onClick={()=>setDashTab(t)}>{l}</button>
             ))}
           </div>
           <div style={{display:"flex",alignItems:"center",gap:8}}>
@@ -2717,7 +2939,7 @@ function App() {
                 <span style={lbl}>Tier {tier} -- {TIER_LABELS[tier]}</span>
                 {tag(tc,accs.length)}
               </div>
-              <div style={{display:"grid",gridTemplateColumns:tier===1?"1fr 1fr 1fr":tier===2?"1fr 1fr 1fr":"1fr 1fr 1fr 1fr",gap:14}}>
+              <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr 1fr":tier===1?"1fr 1fr 1fr":tier===2?"1fr 1fr 1fr":"1fr 1fr 1fr 1fr",gap:14}}>
                 {accs.map(acc=>{
                   const lastAct=acc.contacts.flatMap(c=>c.activities).sort((a,b)=>new Date(b.date)-new Date(a.date))[0];
                   const ds=lastAct?daysSince(lastAct.date):null;
@@ -2838,7 +3060,7 @@ function App() {
     return (
       <div>
         <Crumb items={[{label:"Accounts",onClick:()=>setView("dash")},{label:acc.name}]}/>
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16,marginBottom:20}}>
+        <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1fr",gap:16,marginBottom:20}}>
           <div style={card}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:14}}>
               <div>
@@ -2865,7 +3087,7 @@ function App() {
             {acc.notes&&<><div style={divL}/><div style={lbl}>Notes</div><div style={{color:"#52525b",fontSize:13,marginTop:6,lineHeight:1.6}}>{acc.notes}</div></>}
           </div>
           <div style={card}>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:20}}>
+            <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1fr",gap:20}}>
               <div>
                 <div style={{...lbl,color:C.green,marginBottom:10}}>Strengths</div>
                 {acc.pros.length>0?acc.pros.map((p,i)=><div key={i} style={{fontSize:13,color:"#52525b",marginBottom:6,lineHeight:1.4}}>{p}</div>):<div style={{color:C.border2,fontSize:13}}>None</div>}
@@ -2961,7 +3183,7 @@ function App() {
     return (
       <div>
         <Crumb items={[{label:"Accounts",onClick:()=>setView("dash")},{label:acc.name,onClick:()=>{setView("account");setAccTab("jobs");}},{label:job.name}]}/>
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16,marginBottom:24}}>
+        <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1fr",gap:16,marginBottom:24}}>
           <div style={card}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:14}}>
               <div><div style={{fontFamily:C.serif,fontSize:20,color:C.textHi,marginBottom:6}}>{job.name}</div>{tag(sc,job.status)}</div>
@@ -3028,7 +3250,7 @@ function App() {
     return (
       <div>
         <Crumb items={[{label:"Accounts",onClick:()=>setView("dash")},{label:acc.name,onClick:()=>{setView("account");setAccTab("contacts");}},{label:con.name}]}/>
-        <div style={{display:"grid",gridTemplateColumns:"280px 1fr",gap:20}}>
+        <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"280px 1fr",gap:20}}>
           <div>
             <div style={card}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:14}}>
@@ -3118,38 +3340,100 @@ function App() {
     );
   };
 
+  const isMobile = useIsMobile();
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
   return (
     <div style={{background:C.bg,minHeight:"100vh",color:C.text,fontFamily:C.sans,fontSize:14}}>
-      <div style={{background:C.surface,borderBottom:`1px solid ${C.border}`,padding:"0 32px",display:"flex",alignItems:"center",justifyContent:"space-between",height:58}}>
-        <div style={{fontFamily:C.serif,fontSize:22,color:C.textHi,letterSpacing:"-0.02em",cursor:"pointer"}} onClick={()=>{setView("dash");setBackStack([]);}}>
+      {/* NAV BAR */}
+      <div style={{background:C.surface,borderBottom:`1px solid ${C.border}`,padding:isMobile?"0 16px":"0 32px",display:"flex",alignItems:"center",justifyContent:"space-between",height:58,position:"sticky",top:0,zIndex:100}}>
+        <div style={{fontFamily:C.serif,fontSize:22,color:C.textHi,letterSpacing:"-0.02em",cursor:"pointer"}} onClick={()=>{setView("dash");setBackStack([]);setMobileMenuOpen(false);}}>
           Sales<span style={{color:C.gold}}>OS</span>
         </div>
-        <div style={{display:"flex",alignItems:"center",gap:10}}>
-          <button style={{...btn(null,C.textLo,C.border2),gap:6}} onClick={()=>{setModal("globalSearch");}}>Search</button>
-          {alerts.length>0&&<span style={{...pill(C.amber),display:"inline-flex",alignItems:"center",gap:5,cursor:"pointer"}} onClick={()=>setView("dash")}>Overdue: {alerts.length}</span>}
-          {winRate!==null&&<span style={{fontSize:12,color:C.textDim,borderLeft:`1px solid ${C.border}`,paddingLeft:10}}>{winRate}% win rate</span>}
-          <span style={{color:C.textDim,fontSize:13,borderLeft:`1px solid ${C.border}`,paddingLeft:10}}>{userName}</span>
-          <button onClick={exportData} style={{...btn(null,exportFlash?C.green:C.blue,exportFlash?C.green+"60":C.border2),minWidth:80,justifyContent:"center",transition:"all 0.3s"}}>{exportFlash?"✓ Saved!":"↓ Export"}</button>
-          {syncStatus==="saving"&&<span style={{fontSize:11,color:C.textDim}}>Syncing…</span>}
-          {syncStatus==="saved"&&<span style={{fontSize:11,color:C.green}}>✓ Synced</span>}
-          {syncStatus==="error"&&<span style={{fontSize:11,color:C.red}}>Sync error</span>}
-          <button style={{...btn(null,"#7c3aed","#7c3aed40"),minWidth:110,justifyContent:"center"}} onClick={()=>setModal("contactImport")}>+ Import Contacts</button>
-          <button style={btn(null,C.textLo,C.border2)} onClick={()=>{setForm({});setModal("settings");}}>Settings</button>
-          <button style={btn(null,C.red,"#3d1e1e")} onClick={()=>{localStorage.removeItem("salesos_authed");window.location.reload();}}>Sign Out</button>
-        </div>
+        {isMobile ? (
+          <div style={{display:"flex",alignItems:"center",gap:8}}>
+            {alerts.length>0&&<span style={{...pill(C.amber),fontSize:11,padding:"2px 8px",cursor:"pointer"}} onClick={()=>{setView("dash");setMobileMenuOpen(false);}}>⚠ {alerts.length}</span>}
+            {syncStatus==="saving"&&<span style={{fontSize:11,color:C.textDim}}>Syncing…</span>}
+            {syncStatus==="saved"&&<span style={{fontSize:11,color:C.green}}>✓</span>}
+            <button onClick={()=>setMobileMenuOpen(o=>!o)} style={{background:"none",border:`1px solid ${C.border2}`,borderRadius:8,padding:"6px 10px",cursor:"pointer",fontSize:18,color:C.textHi,lineHeight:1}}>
+              {mobileMenuOpen ? "✕" : "☰"}
+            </button>
+          </div>
+        ) : (
+          <div style={{display:"flex",alignItems:"center",gap:10}}>
+            <button style={{...btn(null,C.textLo,C.border2),gap:6}} onClick={()=>setModal("globalSearch")}>Search</button>
+            {alerts.length>0&&<span style={{...pill(C.amber),display:"inline-flex",alignItems:"center",gap:5,cursor:"pointer"}} onClick={()=>setView("dash")}>Overdue: {alerts.length}</span>}
+            {winRate!==null&&<span style={{fontSize:12,color:C.textDim,borderLeft:`1px solid ${C.border}`,paddingLeft:10}}>{winRate}% win rate</span>}
+            <span style={{color:C.textDim,fontSize:13,borderLeft:`1px solid ${C.border}`,paddingLeft:10}}>{userName}</span>
+            <button onClick={exportData} style={{...btn(null,exportFlash?C.green:C.blue,exportFlash?C.green+"60":C.border2),minWidth:80,justifyContent:"center",transition:"all 0.3s"}}>{exportFlash?"✓ Saved!":"↓ Export"}</button>
+            {syncStatus==="saving"&&<span style={{fontSize:11,color:C.textDim}}>Syncing…</span>}
+            {syncStatus==="saved"&&<span style={{fontSize:11,color:C.green}}>✓ Synced</span>}
+            {syncStatus==="error"&&<span style={{fontSize:11,color:C.red}}>Sync error</span>}
+            <button style={{...btn(null,"#7c3aed","#7c3aed40"),minWidth:110,justifyContent:"center"}} onClick={()=>setModal("contactImport")}>+ Import Contacts</button>
+            <button style={btn(null,C.textLo,C.border2)} onClick={()=>{setForm({});setModal("settings");}}>Settings</button>
+            <button style={btn(null,C.red,"#3d1e1e")} onClick={onSignOut}>Sign Out</button>
+          </div>
+        )}
       </div>
-      <div style={{maxWidth:1200,margin:"0 auto",padding:"32px 24px"}}>
+      {/* MOBILE DROPDOWN MENU */}
+      {isMobile && mobileMenuOpen && (
+        <div style={{background:C.surface,borderBottom:`1px solid ${C.border}`,padding:"12px 16px",display:"flex",flexDirection:"column",gap:8,zIndex:99}}>
+          <button style={{...btn(null,C.textLo,C.border2),justifyContent:"center"}} onClick={()=>{setModal("globalSearch");setMobileMenuOpen(false);}}>🔍 Search</button>
+          <button style={{...btn(null,"#7c3aed","#7c3aed40"),justifyContent:"center"}} onClick={()=>{setModal("contactImport");setMobileMenuOpen(false);}}>+ Import Contacts</button>
+          <button onClick={()=>{exportData();setMobileMenuOpen(false);}} style={{...btn(null,exportFlash?C.green:C.blue,exportFlash?C.green+"60":C.border2),justifyContent:"center",transition:"all 0.3s"}}>{exportFlash?"✓ Saved!":"↓ Export"}</button>
+          <button style={{...btn(null,C.textLo,C.border2),justifyContent:"center"}} onClick={()=>{setForm({});setModal("settings");setMobileMenuOpen(false);}}>⚙ Settings</button>
+          <button style={{...btn(null,C.red,"#3d1e1e"),justifyContent:"center"}} onClick={onSignOut}>Sign Out</button>
+          <div style={{fontSize:11,color:C.textDim,textAlign:"center",paddingTop:4}}>{userName}{winRate!==null?` · ${winRate}% win rate`:""}</div>
+        </div>
+      )}
+      <div style={{maxWidth:1200,margin:"0 auto",padding:isMobile?"16px 12px":"32px 24px"}}>
+        {demoMode && (
+          <div style={{background:"#7a5fc015",border:"1px solid #7a5fc040",borderRadius:10,padding:"10px 18px",marginBottom:20,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+            <span style={{fontSize:13,color:C.purple,fontWeight:600}}>✦ Demo Mode — You're exploring sample data. Nothing you do here is saved.</span>
+            <button onClick={onSignOut} style={{...btn(null,C.purple,"#7a5fc040"),fontSize:12,padding:"4px 12px"}}>Exit Demo</button>
+          </div>
+        )}
         {view==="dash"    &&<DashView/>}
         {view==="account" &&<AccountView/>}
         {view==="job"     &&<JobView/>}
         {view==="contact" &&<ContactView/>}
+        {/* Mobile bottom padding so FAB doesn't cover content */}
+        {isMobile && <div style={{height:80}}/>}
       </div>
       <Modals/>
-    </div>
-  );
+      {/* MOBILE FAB - Quick Log Activity */}
+      {isMobile && (
+        <div style={{position:"fixed",bottom:0,left:0,right:0,background:C.surface,borderTop:`1px solid ${C.border}`,padding:"10px 16px",display:"flex",gap:8,zIndex:200}}>
+          <button
+            onClick={()=>{setModal("globalSearch");}}
+            style={{flex:1,background:C.bg,border:`1px solid ${C.border2}`,borderRadius:10,padding:"10px 0",fontSize:12,fontWeight:600,color:C.textLo,cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:2}}
+          >
+            <span style={{fontSize:18}}>🔍</span>Search
+          </button>
+          <button
+            onClick={()=>{
+              if(view==="contact"&&selCon){
+                setForm({type:"Email",date:new Date().toISOString().slice(0,10),notes:"",followUp:"",jobId:null});
+                setModal("addAct");
+              } else {
+                setShowGenLog(true);
+              }
+            }}
+            style={{flex:2,background:C.gold,border:"none",borderRadius:10,padding:"10px 0",fontSize:13,fontWeight:700,color:"#0a0d13",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:2}}
+          >
+            <span style={{fontSize:20}}>＋</span>Log Activity
+          </button>
+          <button
+            onClick={()=>{setView("dash");setBackStack([]);setMobileMenuOpen(false);}}
+            style={{flex:1,background:view==="dash"?C.gold+"22":C.bg,border:`1px solid ${view==="dash"?C.gold+"60":C.border2}`,borderRadius:10,padding:"10px 0",fontSize:12,fontWeight:600,color:view==="dash"?C.gold:C.textLo,cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:2}}
+          >
+            <span style={{fontSize:18}}>🏠</span>Home
+          </button>
+        </div>
+      )}
 }
 
-function LoginScreen({ onLogin }) {
+function LoginScreen({ onLogin, onDemo }) {
   const [pw, setPw] = React.useState("");
   const [err, setErr] = React.useState(false);
   const [checking, setChecking] = React.useState(false);
@@ -3158,10 +3442,9 @@ function LoginScreen({ onLogin }) {
     if (!pw.trim()) return;
     setChecking(true);
     setErr(false);
-    // Check password stored in Supabase settings row
     try {
       const { data } = await sb.from(SB_TABLE).select("payload").eq("id", "salesos_auth").single();
-      let storedPw = "fairco2024"; // default
+      let storedPw = "fairco2024";
       if (data && data.payload) {
         try { storedPw = JSON.parse(data.payload).password || storedPw; } catch(e){}
       }
@@ -3172,7 +3455,6 @@ function LoginScreen({ onLogin }) {
         setErr(true);
       }
     } catch(e) {
-      // If no auth row exists, use default password
       if (pw.trim() === "fairco2024") {
         localStorage.setItem("salesos_authed", "1");
         onLogin();
@@ -3185,11 +3467,11 @@ function LoginScreen({ onLogin }) {
 
   return (
     <div style={{minHeight:"100vh",background:"#f0eff0",display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'DM Sans','Helvetica Neue',sans-serif"}}>
-      <div style={{background:"#ffffff",border:"1px solid #e0dde0",borderRadius:16,padding:"40px 48px",width:"100%",maxWidth:380,textAlign:"center",boxShadow:"0 4px 24px rgba(0,0,0,0.06)"}}>
+      <div style={{background:"#ffffff",border:"1px solid #e0dde0",borderRadius:16,padding:"40px 48px",width:"100%",maxWidth:400,textAlign:"center",boxShadow:"0 4px 24px rgba(0,0,0,0.06)"}}>
         <div style={{fontFamily:"'DM Serif Display',Georgia,serif",fontSize:28,color:"#1a1820",marginBottom:4}}>
           Sales<span style={{color:"#c8980a"}}>OS</span>
         </div>
-        <div style={{color:"#7a7880",fontSize:13,marginBottom:32}}>Fairco Landscape Development</div>
+        <div style={{color:"#7a7880",fontSize:13,marginBottom:32}}>BD Pipeline & Relationship Manager</div>
         <input
           type="password"
           placeholder="Password"
@@ -3203,10 +3485,22 @@ function LoginScreen({ onLogin }) {
         <button
           onClick={attempt}
           disabled={checking}
-          style={{width:"100%",background:"#c8980a",color:"#0a0d13",border:"none",borderRadius:8,padding:"10px 0",fontSize:14,fontWeight:700,cursor:checking?"wait":"pointer",fontFamily:"'DM Sans',sans-serif",marginTop:4}}
+          style={{width:"100%",background:"#c8980a",color:"#0a0d13",border:"none",borderRadius:8,padding:"10px 0",fontSize:14,fontWeight:700,cursor:checking?"wait":"pointer",fontFamily:"'DM Sans',sans-serif",marginBottom:12}}
         >
           {checking ? "Checking..." : "Sign In"}
         </button>
+        <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12}}>
+          <div style={{flex:1,height:1,background:"#e0dde0"}}/>
+          <span style={{fontSize:12,color:"#aaa8b0"}}>or</span>
+          <div style={{flex:1,height:1,background:"#e0dde0"}}/>
+        </div>
+        <button
+          onClick={onDemo}
+          style={{width:"100%",background:"transparent",color:"#7a5fc0",border:"1px solid #7a5fc040",borderRadius:8,padding:"10px 0",fontSize:14,fontWeight:600,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}
+        >
+          ✦ Try Demo
+        </button>
+        <div style={{fontSize:11,color:"#aaa8b0",marginTop:10}}>Demo mode — explore freely, no data is saved</div>
       </div>
     </div>
   );
@@ -3214,8 +3508,9 @@ function LoginScreen({ onLogin }) {
 
 function Root() {
   const [authed, setAuthed] = React.useState(!!localStorage.getItem("salesos_authed"));
-  if (!authed) return <LoginScreen onLogin={()=>setAuthed(true)} />;
-  return <App />;
+  const [demoMode, setDemoMode] = React.useState(false);
+  if (!authed && !demoMode) return <LoginScreen onLogin={()=>setAuthed(true)} onDemo={()=>setDemoMode(true)} />;
+  return <App demoMode={demoMode} onSignOut={()=>{localStorage.removeItem("salesos_authed");setAuthed(false);setDemoMode(false);}} />;
 }
 
 ReactDOM.createRoot(document.getElementById("root")).render(<Root/>);
