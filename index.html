@@ -1085,6 +1085,8 @@ function CampaignPanel({data, upd, setModal, setForm, setSA, setSC, setView, sho
 
 
 function App({demoMode, onSignOut}) {
+  const isMobile = useIsMobile();
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [data,    setData]    = useState(null);
   const [view,    setView]    = useState("dash");
   const [backStack, setBackStack] = useState([]);
@@ -3339,9 +3341,6 @@ function App({demoMode, onSignOut}) {
       </div>
     );
   };
-
-  const isMobile = useIsMobile();
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   return (
     <div style={{background:C.bg,minHeight:"100vh",color:C.text,fontFamily:C.sans,fontSize:14}}>
