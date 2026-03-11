@@ -83,12 +83,12 @@ exports.handler = async (event, context) => {
       "Content-Type": "application/json"
     };
 
-    // Date range: last 30 days
+    // Date range: last 90 days
     const since = new Date();
-    since.setDate(since.getDate() - 30);
+    since.setDate(since.getDate() - 90);
     const sinceISO = since.toISOString();
 
-    // Fetch sent emails (from me) in last 30 days
+    // Fetch sent emails (from me) in last 90 days
     const emailRes = await fetch(
       `https://graph.microsoft.com/v1.0/me/mailFolders/SentItems/messages`
       + `?$filter=sentDateTime ge ${sinceISO}`
@@ -109,7 +109,7 @@ exports.handler = async (event, context) => {
       source: "email_sent"
     }));
 
-    // Fetch received emails in last 30 days
+    // Fetch received emails in last 90 days
     const inboxRes = await fetch(
       `https://graph.microsoft.com/v1.0/me/mailFolders/Inbox/messages`
       + `?$filter=receivedDateTime ge ${sinceISO}`
@@ -130,7 +130,7 @@ exports.handler = async (event, context) => {
       source: "email_received"
     }));
 
-    // Fetch calendar events in last 30 days
+    // Fetch calendar events in last 90 days
     const calRes = await fetch(
       `https://graph.microsoft.com/v1.0/me/calendarView`
       + `?startDateTime=${sinceISO}`
