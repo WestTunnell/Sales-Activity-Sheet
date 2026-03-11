@@ -1056,7 +1056,14 @@ function ContactImportModal({data, upd, closeModal}) {
 // Place it just before the CampaignForm function definition
 // ─────────────────────────────────────────────────────────────────────────────
 
-function OutlookSyncModal({ data, upd, closeModal }) {
+function OutlookSyncModal({ data, upd, closeModal, demoMode }) {
+  if(demoMode) return (
+    <div style={{textAlign:"center",padding:"40px 20px"}}>
+      <div style={{fontSize:36,marginBottom:12}}>🔒</div>
+      <div style={{fontWeight:700,fontSize:15,color:"#f1f0f4",marginBottom:8}}>Not available in Demo Mode</div>
+      <div style={{fontSize:13,color:"#6b7280"}}>Outlook Sync requires a real SalesOS account connected to your Microsoft 365.</div>
+    </div>
+  );
   const [status,     setStatus]     = React.useState("idle"); // idle | loading | loaded | error
   const [connected,  setConnected]  = React.useState(null);   // null | true | false
   const [items,      setItems]      = React.useState([]);      // all fetched items
@@ -1553,7 +1560,7 @@ Best regards, West`
   }
 };
 
-const DraftMessageModal = ({item, data, upd, onClose}) => {
+const DraftMessageModal = ({item, data, upd, onClose, demoMode}) => {
   const {con, acc, camp, touch, diff} = item;
   const [templateKey, setTemplateKey] = React.useState(Object.keys(CAMPAIGN_TEMPLATES)[0]);
   const [draft, setDraft] = React.useState("");
@@ -1566,6 +1573,7 @@ const DraftMessageModal = ({item, data, upd, onClose}) => {
   const jobs = (acc.jobs||[]).filter(j=>j.status==="active"||j.status==="bidding").map(j=>`${j.name} (${j.status})`).join(", ");
 
   const generateDraft = async () => {
+    if(demoMode) { setError("Draft generation is not available in demo mode."); return; }
     setLoading(true);
     setError("");
     setDraft("");
@@ -1910,7 +1918,7 @@ Return ONLY the JSON array, no other text.`;
 };
 
 
-function CampaignPanel({data, upd, setModal, setForm, setSA, setSC, setView, showCampaignForm, setShowCampaignForm}) {
+function CampaignPanel({data, upd, setModal, setForm, setSA, setSC, setView, showCampaignForm, setShowCampaignForm, demoMode}) {
   const navTo2 = function(accId, conId) { setSA(accId); setSC(conId); setView("contact"); };
   const [draftModal, setDraftModal] = React.useState(null); // {con, acc, camp, touch, touchType}
   const [linkedInModal, setLinkedInModal] = React.useState(false);
@@ -2005,7 +2013,7 @@ function CampaignPanel({data, upd, setModal, setForm, setSA, setSC, setView, sho
       </div>
 
       {/* Draft Message Modal */}
-      {draftModal && <DraftMessageModal item={draftModal} data={data} upd={upd} onClose={()=>setDraftModal(null)} />}
+      {draftModal && <DraftMessageModal item={draftModal} data={data} upd={upd} onClose={()=>setDraftModal(null)} demoMode={demoMode} />}
 
       {/* LinkedIn Import Modal */}
       {linkedInModal && <LinkedInImportModal data={data} upd={upd} onClose={()=>setLinkedInModal(false)} />}
@@ -2963,8 +2971,8 @@ function App({demoMode, onSignOut}) {
 
                 if(modal==="contactImport") return <Modal title="Import Contacts from Screenshot" wide onClose={closeModal}><ContactImportModal data={data} upd={upd} closeModal={closeModal} /></Modal>;
     if(modal==="linkedInImport") return <Modal title="LinkedIn Smart Import" wide onClose={closeModal}><LinkedInImportModal data={data} upd={upd} closeModal={closeModal} /></Modal>;
-    if(modal==="outlookSync") return <Modal title="Outlook Sync" wide onClose={closeModal}><OutlookSyncModal data={data} upd={upd} closeModal={closeModal} /></Modal>;
-    if(modal==="quickLog") return <Modal title="Log Activity" onClose={closeModal}><QuickLogModal data={data} upd={upd} closeModal={closeModal} /></Modal>;
+    if(modal==="outlookSync") return <Modal title="Outlook Sync" wide onClose={closeModal}><OutlookSyncModal data={data} upd={upd} closeModal={closeModal} demoMode={demoMode} /></Modal>;
+    if(modal==="fabLog") return <Modal title="Log Activity" onClose={closeModal}><QuickLogModal data={data} upd={upd} closeModal={closeModal} /></Modal>;
     if(modal==="startCampaign") return <Modal title="Start Touchpoint Campaign" wide onClose={closeModal}><CampaignForm contactId={showCampaignForm} data={data} upd={upd} onClose={closeModal}/></Modal>;
       if(modal==="settings") return (
       <Modal title="Settings" onClose={closeModal}>
@@ -3984,7 +3992,7 @@ function App({demoMode, onSignOut}) {
         {dashTab==="calendar"&&<CalendarView data={data} setSA={setSA} setSC={setSC} setSJ={setSJ} setView={setView} setAccTab={setAccTab}/>}
         {dashTab==="map"&&<MapView data={data} setSA={setSA} setSJ={setSJ} setView={setView}/>}
         {dashTab==="feed"&&<ActivityFeedView feedFilter={feedFilter} data={data} setSA={setSA} setSC={setSC} setSJ={setSJ} setView={setView} setAccTab={setAccTab}/>}
-        {dashTab==="campaigns"&&<CampaignPanel data={data} upd={upd} setModal={setModal} setForm={setForm} setSA={setSA} setSC={setSC} setView={setView} showCampaignForm={showCampaignForm} setShowCampaignForm={setShowCampaignForm}/>}
+        {dashTab==="campaigns"&&<CampaignPanel data={data} upd={upd} setModal={setModal} setForm={setForm} setSA={setSA} setSC={setSC} setView={setView} showCampaignForm={showCampaignForm} setShowCampaignForm={setShowCampaignForm} demoMode={demoMode}/>}
 
       </div>
     );
@@ -4348,7 +4356,7 @@ function App({demoMode, onSignOut}) {
             <span style={{fontSize:18}}>🔍</span>Search
           </button>
           <button
-            onClick={()=>{ setModal("quickLog"); }}
+            onClick={()=>{ setModal("fabLog"); }}
             style={{flex:2,background:C.gold,border:"none",borderRadius:10,padding:"10px 0",fontSize:13,fontWeight:700,color:"#0a0d13",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:2}}
           >
             <span style={{fontSize:20}}>＋</span>Log Activity
