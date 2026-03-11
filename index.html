@@ -918,6 +918,373 @@ function ContactImportModal({data, upd, closeModal}) {
 }
 
 
+// ─────────────────────────────────────────────────────────────────────────────
+// OUTLOOK SYNC — paste this component block into index.html
+// Place it just before the CampaignForm function definition
+// ─────────────────────────────────────────────────────────────────────────────
+
+function OutlookSyncModal({ data, upd, closeModal }) {
+  const [status,     setStatus]     = React.useState("idle"); // idle | loading | loaded | error
+  const [connected,  setConnected]  = React.useState(null);   // null | true | false
+  const [items,      setItems]      = React.useState([]);      // all fetched items
+  const [decisions,  setDecisions]  = React.useState({});     // id -> { action, contactId, accId, jobId, type }
+  const [saved,      setSaved]      = React.useState(false);
+  const [tab,        setTab]        = React.useState("all");   // all | email_sent | email_received | calendar
+
+  const SYNC_URL = "/.netlify/functions/outlook-sync";
+  const AUTH_URL = "/.netlify/functions/outlook-auth";
+
+  // Check connection status on open
+  React.useEffect(function() {
+    checkConnection();
+    // Also check if we just came back from OAuth
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("outlook") === "connected") {
+      window.history.replaceState({}, "", window.location.pathname);
+      checkConnection();
+    }
+  }, []);
+
+  async function checkConnection() {
+    setStatus("loading");
+    try {
+      const res = await fetch(SYNC_URL);
+      if (res.status === 401) {
+        setConnected(false);
+        setStatus("idle");
+        return;
+      }
+      const d = await res.json();
+      if (d.error === "not_connected") {
+        setConnected(false);
+        setStatus("idle");
+        return;
+      }
+      setConnected(true);
+      processItems(d);
+      setStatus("loaded");
+    } catch (e) {
+      setConnected(false);
+      setStatus("idle");
+    }
+  }
+
+  function processItems(d) {
+    const all = [];
+    // Sent emails
+    (d.emails || []).forEach(function(e) {
+      all.push({ ...e, _type: "email_sent",      _label: "Sent Email",     _color: "#3a7fd4" });
+    });
+    // Received emails
+    (d.received || []).forEach(function(e) {
+      all.push({ ...e, _type: "email_received",  _label: "Received Email", _color: "#7a5fc0" });
+    });
+    // Calendar events
+    (d.events || []).forEach(function(e) {
+      all.push({ ...e, _type: "calendar",         _label: "Calendar Event", _color: "#c8980a" });
+    });
+    // Sort by date desc
+    all.sort(function(a, b) { return (b.date || "").localeCompare(a.date || ""); });
+
+    // Auto-match each item to existing contacts by email address
+    const withMatches = all.map(function(item) {
+      const emails = [];
+      if (item._type === "email_sent") {
+        (item.to || []).forEach(function(r) { if (r.email) emails.push(r.email.toLowerCase()); });
+      } else if (item._type === "email_received") {
+        if (item.from && item.from.email) emails.push(item.from.email.toLowerCase());
+      } else if (item._type === "calendar") {
+        (item.attendees || []).forEach(function(a) { if (a.email) emails.push(a.email.toLowerCase()); });
+      }
+
+      // Try to find a matching contact in SalesOS
+      let matchedCon = null, matchedAcc = null;
+      data.accounts.forEach(function(acc) {
+        acc.contacts.forEach(function(con) {
+          if (con.email && emails.includes(con.email.toLowerCase())) {
+            matchedCon = con;
+            matchedAcc = acc;
+          }
+        });
+      });
+
+      return { ...item, _matchedCon: matchedCon, _matchedAcc: matchedAcc, _emails: emails };
+    });
+
+    setItems(withMatches);
+
+    // Auto-set decisions for matched items
+    const autoDecs = {};
+    withMatches.forEach(function(item) {
+      if (item._matchedCon) {
+        autoDecs[item.id] = {
+          action: "log",
+          contactId: item._matchedCon.id,
+          accId:     item._matchedAcc.id,
+          type:      item._type === "calendar" ? guessCalendarType(item.subject) : "Email"
+        };
+      }
+    });
+    setDecisions(autoDecs);
+  }
+
+  function guessCalendarType(subject) {
+    if (!subject) return "Other";
+    const s = subject.toLowerCase();
+    if (/lunch|dinner|breakfast/.test(s))     return "Lunch";
+    if (/coffee|cafe|café/.test(s))           return "Coffee";
+    if (/happy hour|drinks|bar/.test(s))      return "Happy Hour";
+    if (/site|walk|field/.test(s))            return "Site Visit";
+    if (/call|phone/.test(s))                 return "Phone Call";
+    if (/proposal|bid|present/.test(s))       return "Proposal";
+    if (/event|conference|mixer|show/.test(s))return "Market Event";
+    return "Other";
+  }
+
+  function setDecision(id, changes) {
+    setDecisions(function(d) {
+      return Object.assign({}, d, { [id]: Object.assign({}, d[id] || {}, changes) });
+    });
+  }
+
+  function save() {
+    upd(function(d) {
+      items.forEach(function(item) {
+        var dec = decisions[item.id];
+        if (!dec || dec.action !== "log" || !dec.contactId) return;
+        var acc = d.accounts.find(function(a) { return a.id === dec.accId; });
+        if (!acc) return;
+        var con = acc.contacts.find(function(c) { return c.id === dec.contactId; });
+        if (!con) return;
+
+        // Build notes from subject + preview
+        var notes = item.subject || "";
+        if (item.preview && item.preview.trim()) notes += (notes ? " — " : "") + item.preview.trim();
+
+        // Avoid logging the exact same date+type combo twice
+        var isDupe = con.activities.some(function(a) {
+          return a.date === item.date && a.type === dec.type && a.notes && a.notes.includes(item.subject || "");
+        });
+        if (isDupe) return;
+
+        con.activities.unshift({
+          id:       Math.random().toString(36).slice(2, 9),
+          type:     dec.type || "Email",
+          date:     item.date || new Date().toISOString().slice(0, 10),
+          notes:    notes.slice(0, 500),
+          followUp: null,
+          jobId:    dec.jobId || null,
+          fromOutlook: true
+        });
+      });
+      return d;
+    });
+    setSaved(true);
+  }
+
+  const filtered = tab === "all" ? items : items.filter(function(i) { return i._type === tab; });
+  const matched  = items.filter(function(i) { return !!i._matchedCon; }).length;
+  const toLog    = Object.values(decisions).filter(function(d) { return d.action === "log" && d.contactId; }).length;
+
+  if (saved) {
+    return (
+      <div style={{ textAlign: "center", padding: "40px 20px" }}>
+        <div style={{ fontSize: 36, marginBottom: 12 }}>✓</div>
+        <div style={{ fontFamily: "Georgia,serif", fontSize: 18, color: "#1a1820", marginBottom: 8 }}>
+          {toLog} activities logged from Outlook
+        </div>
+        <button onClick={closeModal} style={{ padding: "8px 24px", background: "#c8980a", border: "none", borderRadius: 8, color: "#0a0d13", fontWeight: 700, cursor: "pointer", fontSize: 14 }}>
+          Done
+        </button>
+      </div>
+    );
+  }
+
+  // Not connected yet
+  if (connected === false) {
+    return (
+      <div style={{ textAlign: "center", padding: "40px 20px" }}>
+        <div style={{ fontSize: 40, marginBottom: 16 }}>📧</div>
+        <div style={{ fontFamily: "Georgia,serif", fontSize: 20, color: "#1a1820", marginBottom: 10 }}>
+          Connect Your Outlook
+        </div>
+        <div style={{ fontSize: 13, color: "#6b7280", marginBottom: 28, lineHeight: 1.7, maxWidth: 380, margin: "0 auto 28px" }}>
+          Sign in with your Fairco Microsoft account to pull recent emails and calendar events into SalesOS and log them as activities.
+        </div>
+        <a href={AUTH_URL}
+          style={{ display: "inline-block", padding: "11px 28px", background: "#0078d4", color: "#fff", borderRadius: 8, fontWeight: 700, fontSize: 14, textDecoration: "none" }}>
+          Sign in with Microsoft
+        </a>
+        <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 14 }}>
+          Only reads your Fairco account. Never writes to Outlook.
+        </div>
+      </div>
+    );
+  }
+
+  // Loading
+  if (status === "loading") {
+    return (
+      <div style={{ textAlign: "center", padding: "60px 20px", color: "#6b7280", fontSize: 13 }}>
+        <div style={{ width: 24, height: 24, border: "2px solid #c8980a", borderTopColor: "transparent", borderRadius: "50%", animation: "spin 0.8s linear infinite", margin: "0 auto 16px" }} />
+        Pulling from Outlook...
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      {/* Summary bar */}
+      <div style={{ background: "#f8f7f8", borderRadius: 10, padding: "12px 16px", marginBottom: 16, display: "flex", gap: 24, alignItems: "center", flexWrap: "wrap" }}>
+        <div style={{ textAlign: "center" }}>
+          <div style={{ color: "#3a7fd4", fontWeight: 700, fontSize: 22 }}>{items.length}</div>
+          <div style={{ color: "#aaa8b0", fontSize: 10, textTransform: "uppercase", letterSpacing: "0.07em" }}>Items Pulled</div>
+        </div>
+        <div style={{ textAlign: "center" }}>
+          <div style={{ color: "#22c55e", fontWeight: 700, fontSize: 22 }}>{matched}</div>
+          <div style={{ color: "#aaa8b0", fontSize: 10, textTransform: "uppercase", letterSpacing: "0.07em" }}>Auto-Matched</div>
+        </div>
+        <div style={{ textAlign: "center" }}>
+          <div style={{ color: "#c8980a", fontWeight: 700, fontSize: 22 }}>{toLog}</div>
+          <div style={{ color: "#aaa8b0", fontSize: 10, textTransform: "uppercase", letterSpacing: "0.07em" }}>Ready to Log</div>
+        </div>
+        <button onClick={checkConnection} style={{ marginLeft: "auto", padding: "5px 14px", background: "transparent", border: "1px solid #d0cdd0", borderRadius: 8, cursor: "pointer", fontSize: 12, color: "#7a7880" }}>
+          ↻ Refresh
+        </button>
+      </div>
+
+      {/* Tab filter */}
+      <div style={{ display: "flex", borderBottom: "1px solid #e0dde0", marginBottom: 16 }}>
+        {[["all","All"],["email_sent","Sent"],["email_received","Received"],["calendar","Calendar"]].map(function(pair) {
+          var active = tab === pair[0];
+          return (
+            <button key={pair[0]} onClick={function() { setTab(pair[0]); }}
+              style={{ padding: "7px 16px", fontSize: 13, fontWeight: active ? 700 : 400, color: active ? "#c8980a" : "#7a7880", background: "none", border: "none", borderBottom: "2px solid " + (active ? "#c8980a" : "transparent"), cursor: "pointer", fontFamily: "inherit" }}>
+              {pair[1]}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Items list */}
+      <div style={{ maxHeight: 420, overflowY: "auto", paddingRight: 4 }}>
+        {filtered.length === 0 && (
+          <div style={{ color: "#aaa8b0", textAlign: "center", padding: "32px 0", fontSize: 13 }}>No items in this category.</div>
+        )}
+        {filtered.map(function(item) {
+          var dec = decisions[item.id] || {};
+          var isLogging = dec.action === "log" && dec.contactId;
+          var borderColor = isLogging ? "#22c55e60" : dec.action === "skip" ? "#aaa8b030" : "#e0dde0";
+
+          // People list for display
+          var people = [];
+          if (item._type === "email_sent")      people = (item.to || []);
+          if (item._type === "email_received")  people = item.from ? [item.from] : [];
+          if (item._type === "calendar")        people = (item.attendees || []).filter(function(a) { return a.email && !a.email.toLowerCase().includes("west@fairco"); });
+
+          return (
+            <div key={item.id} style={{ border: "1px solid " + borderColor, borderRadius: 10, padding: "12px 14px", marginBottom: 10, background: dec.action === "skip" ? "#fafafa" : "#fff", opacity: dec.action === "skip" ? 0.5 : 1 }}>
+              {/* Header row */}
+              <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 8 }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 3, flexWrap: "wrap" }}>
+                    <span style={{ background: item._color + "22", color: item._color, border: "1px solid " + item._color + "50", borderRadius: 6, padding: "2px 8px", fontSize: 11, fontWeight: 600 }}>
+                      {item._label}
+                    </span>
+                    <span style={{ fontSize: 11, color: "#aaa8b0" }}>{item.date}</span>
+                  </div>
+                  <div style={{ fontWeight: 700, color: "#1a1820", fontSize: 14, marginBottom: 2 }}>{item.subject || "(no subject)"}</div>
+                  {people.length > 0 && (
+                    <div style={{ fontSize: 12, color: "#6b7280" }}>
+                      {item._type === "email_sent" ? "To: " : item._type === "email_received" ? "From: " : "With: "}
+                      {people.slice(0, 3).map(function(p) { return p.name || p.email; }).join(", ")}
+                      {people.length > 3 ? " +" + (people.length - 3) + " more" : ""}
+                    </div>
+                  )}
+                  {item.preview && <div style={{ fontSize: 12, color: "#9ca3af", marginTop: 4, lineHeight: 1.4 }}>{item.preview.slice(0, 120)}{item.preview.length > 120 ? "..." : ""}</div>}
+                </div>
+                {/* Action buttons */}
+                <div style={{ display: "flex", gap: 6, marginLeft: 12, flexShrink: 0 }}>
+                  <button onClick={function() { setDecision(item.id, { action: dec.action === "log" ? null : "log", contactId: dec.contactId || (item._matchedCon ? item._matchedCon.id : null), accId: dec.accId || (item._matchedAcc ? item._matchedAcc.id : null), type: dec.type || (item._type === "calendar" ? guessCalendarType(item.subject) : "Email") }); }}
+                    style={{ padding: "3px 10px", fontSize: 11, borderRadius: 6, cursor: "pointer", border: "1px solid " + (isLogging ? "#22c55e80" : "#e0dde0"), background: isLogging ? "#22c55e22" : "transparent", color: isLogging ? "#16a34a" : "#6b7280", fontWeight: isLogging ? 700 : 400 }}>
+                    {isLogging ? "✓ Log" : "+ Log"}
+                  </button>
+                  <button onClick={function() { setDecision(item.id, { action: dec.action === "skip" ? null : "skip" }); }}
+                    style={{ padding: "3px 10px", fontSize: 11, borderRadius: 6, cursor: "pointer", border: "1px solid " + (dec.action === "skip" ? "#aaa8b080" : "#e0dde0"), background: dec.action === "skip" ? "#aaa8b022" : "transparent", color: "#9ca3af" }}>
+                    Skip
+                  </button>
+                </div>
+              </div>
+
+              {/* Match / assign row */}
+              {dec.action === "log" && (
+                <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", paddingTop: 8, borderTop: "1px solid #f0eff0" }}>
+                  {/* Auto-matched badge */}
+                  {item._matchedCon && !dec._manualOverride && (
+                    <span style={{ fontSize: 11, color: "#16a34a", background: "#f0fdf4", border: "1px solid #86efac", borderRadius: 6, padding: "2px 8px" }}>
+                      ✓ {item._matchedCon.name} @ {item._matchedAcc && item._matchedAcc.name}
+                    </span>
+                  )}
+                  {/* Contact picker */}
+                  <select
+                    value={dec.contactId || ""}
+                    onChange={function(e) {
+                      var found = data.accounts.flatMap(function(a) { return a.contacts.map(function(c) { return { con: c, acc: a }; }); }).find(function(x) { return x.con.id === e.target.value; });
+                      setDecision(item.id, { contactId: e.target.value, accId: found ? found.acc.id : null, _manualOverride: true });
+                    }}
+                    style={{ padding: "4px 8px", borderRadius: 6, border: "1px solid #e0dde0", fontSize: 12, background: "#fff", fontFamily: "inherit" }}>
+                    <option value="">{item._matchedCon && !dec._manualOverride ? "Change contact..." : "-- Assign to contact --"}</option>
+                    {data.accounts.flatMap(function(acc) {
+                      return acc.contacts.map(function(con) { return { con: con, acc: acc }; });
+                    }).sort(function(a, b) { return a.con.name.localeCompare(b.con.name); }).map(function(x) {
+                      return <option key={x.con.id} value={x.con.id}>{x.con.name} — {x.acc.name}</option>;
+                    })}
+                  </select>
+                  {/* Activity type picker */}
+                  <select
+                    value={dec.type || "Email"}
+                    onChange={function(e) { setDecision(item.id, { type: e.target.value }); }}
+                    style={{ padding: "4px 8px", borderRadius: 6, border: "1px solid #e0dde0", fontSize: 12, background: "#fff", fontFamily: "inherit" }}>
+                    {["Email","Phone Call","Coffee","Lunch","Happy Hour","Site Visit","Market Event","Proposal","LinkedIn Message","Other"].map(function(t) {
+                      return <option key={t} value={t}>{t}</option>;
+                    })}
+                  </select>
+                  {/* Optional job link */}
+                  {dec.accId && (function() {
+                    var acc = data.accounts.find(function(a) { return a.id === dec.accId; });
+                    var jobs = acc ? acc.jobs : [];
+                    if (jobs.length === 0) return null;
+                    return (
+                      <select value={dec.jobId || ""} onChange={function(e) { setDecision(item.id, { jobId: e.target.value || null }); }}
+                        style={{ padding: "4px 8px", borderRadius: 6, border: "1px solid #e0dde0", fontSize: 12, background: "#fff", fontFamily: "inherit" }}>
+                        <option value="">No job linked</option>
+                        {jobs.map(function(j) { return <option key={j.id} value={j.id}>{j.name}</option>; })}
+                      </select>
+                    );
+                  })()}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Footer */}
+      <div style={{ display: "flex", gap: 10, marginTop: 18, alignItems: "center" }}>
+        <button onClick={closeModal} style={{ padding: "8px 18px", background: "transparent", border: "1px solid #d0cdd0", borderRadius: 8, cursor: "pointer", fontSize: 13, color: "#7a7880" }}>
+          Cancel
+        </button>
+        <button
+          onClick={save}
+          disabled={toLog === 0}
+          style={{ flex: 1, padding: "10px 18px", background: toLog > 0 ? "#c8980a" : "#e8e7e8", border: "none", borderRadius: 8, cursor: toLog > 0 ? "pointer" : "not-allowed", fontWeight: 700, fontSize: 14, color: toLog > 0 ? "#0a0d13" : "#aaa8b0" }}>
+          {toLog > 0 ? "Log " + toLog + " Activities from Outlook" : "Select items to log"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function CampaignForm({contactId, data, upd, onClose}) {
   const allContacts = data.accounts.flatMap(a=>a.contacts.map(con=>({con,acc:a})));
   const initConId = contactId || (allContacts[0]&&allContacts[0].con.id) || "";
@@ -2031,6 +2398,7 @@ function App({demoMode, onSignOut}) {
         }
 
                 if(modal==="contactImport") return <Modal title="Import Contacts from Screenshot" wide onClose={closeModal}><ContactImportModal data={data} upd={upd} closeModal={closeModal} /></Modal>;
+    if(modal==="outlookSync") return <Modal title="Outlook Sync" wide onClose={closeModal}><OutlookSyncModal data={data} upd={upd} closeModal={closeModal} /></Modal>;
     if(modal==="startCampaign") return <Modal title="Start Touchpoint Campaign" wide onClose={closeModal}><CampaignForm contactId={showCampaignForm} data={data} upd={upd} onClose={closeModal}/></Modal>;
       if(modal==="settings") return (
       <Modal title="Settings" onClose={closeModal}>
@@ -3369,6 +3737,7 @@ function App({demoMode, onSignOut}) {
             {syncStatus==="saved"&&<span style={{fontSize:11,color:C.green}}>✓ Synced</span>}
             {syncStatus==="error"&&<span style={{fontSize:11,color:C.red}}>Sync error</span>}
             <button style={{...btn(null,"#7c3aed","#7c3aed40"),minWidth:110,justifyContent:"center"}} onClick={()=>setModal("contactImport")}>+ Import Contacts</button>
+            <button style={{...btn(null,"#0078d4","#0078d430"),minWidth:110,justifyContent:"center"}} onClick={()=>setModal("outlookSync")}>📧 Outlook Sync</button>
             <button style={btn(null,C.textLo,C.border2)} onClick={()=>{setForm({});setModal("settings");}}>Settings</button>
             <button style={btn(null,C.red,"#3d1e1e")} onClick={onSignOut}>Sign Out</button>
           </div>
@@ -3379,6 +3748,7 @@ function App({demoMode, onSignOut}) {
         <div style={{background:C.surface,borderBottom:`1px solid ${C.border}`,padding:"12px 16px",display:"flex",flexDirection:"column",gap:8,zIndex:99}}>
           <button style={{...btn(null,C.textLo,C.border2),justifyContent:"center"}} onClick={()=>{setModal("globalSearch");setMobileMenuOpen(false);}}>🔍 Search</button>
           <button style={{...btn(null,"#7c3aed","#7c3aed40"),justifyContent:"center"}} onClick={()=>{setModal("contactImport");setMobileMenuOpen(false);}}>+ Import Contacts</button>
+          <button style={{...btn(null,"#0078d4","#0078d430"),justifyContent:"center"}} onClick={()=>{setModal("outlookSync");setMobileMenuOpen(false);}}>📧 Outlook Sync</button>
           <button onClick={()=>{exportData();setMobileMenuOpen(false);}} style={{...btn(null,exportFlash?C.green:C.blue,exportFlash?C.green+"60":C.border2),justifyContent:"center",transition:"all 0.3s"}}>{exportFlash?"✓ Saved!":"↓ Export"}</button>
           <button style={{...btn(null,C.textLo,C.border2),justifyContent:"center"}} onClick={()=>{setForm({});setModal("settings");setMobileMenuOpen(false);}}>⚙ Settings</button>
           <button style={{...btn(null,C.red,"#3d1e1e"),justifyContent:"center"}} onClick={onSignOut}>Sign Out</button>
