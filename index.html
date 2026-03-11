@@ -918,372 +918,138 @@ function ContactImportModal({data, upd, closeModal}) {
 }
 
 
-// ─────────────────────────────────────────────────────────────────────────────
-// OUTLOOK SYNC — paste this component block into index.html
-// Place it just before the CampaignForm function definition
-// ─────────────────────────────────────────────────────────────────────────────
 
-function OutlookSyncModal({ data, upd, closeModal }) {
-  const [status,     setStatus]     = React.useState("idle"); // idle | loading | loaded | error
-  const [connected,  setConnected]  = React.useState(null);   // null | true | false
-  const [items,      setItems]      = React.useState([]);      // all fetched items
-  const [decisions,  setDecisions]  = React.useState({});     // id -> { action, contactId, accId, jobId, type }
-  const [saved,      setSaved]      = React.useState(false);
-  const [tab,        setTab]        = React.useState("all");   // all | email_sent | email_received | calendar
-
-  const SYNC_URL = "/.netlify/functions/outlook-sync";
-  const AUTH_URL = "/.netlify/functions/outlook-auth";
-
-  // Check connection status on open
-  React.useEffect(function() {
-    checkConnection();
-    // Also check if we just came back from OAuth
-    const params = new URLSearchParams(window.location.search);
-    if (params.get("outlook") === "connected") {
-      window.history.replaceState({}, "", window.location.pathname);
-      checkConnection();
-    }
-  }, []);
-
-  async function checkConnection() {
-    setStatus("loading");
-    try {
-      const res = await fetch(SYNC_URL);
-      if (res.status === 401) {
-        setConnected(false);
-        setStatus("idle");
-        return;
-      }
-      const d = await res.json();
-      if (d.error === "not_connected") {
-        setConnected(false);
-        setStatus("idle");
-        return;
-      }
-      setConnected(true);
-      processItems(d);
-      setStatus("loaded");
-    } catch (e) {
-      setConnected(false);
-      setStatus("idle");
-    }
-  }
-
-  function processItems(d) {
-    const all = [];
-    // Sent emails
-    (d.emails || []).forEach(function(e) {
-      all.push({ ...e, _type: "email_sent",      _label: "Sent Email",     _color: "#3a7fd4" });
-    });
-    // Received emails
-    (d.received || []).forEach(function(e) {
-      all.push({ ...e, _type: "email_received",  _label: "Received Email", _color: "#7a5fc0" });
-    });
-    // Calendar events
-    (d.events || []).forEach(function(e) {
-      all.push({ ...e, _type: "calendar",         _label: "Calendar Event", _color: "#c8980a" });
-    });
-    // Sort by date desc
-    all.sort(function(a, b) { return (b.date || "").localeCompare(a.date || ""); });
-
-    // Auto-match each item to existing contacts by email address
-    const withMatches = all.map(function(item) {
-      const emails = [];
-      if (item._type === "email_sent") {
-        (item.to || []).forEach(function(r) { if (r.email) emails.push(r.email.toLowerCase()); });
-      } else if (item._type === "email_received") {
-        if (item.from && item.from.email) emails.push(item.from.email.toLowerCase());
-      } else if (item._type === "calendar") {
-        (item.attendees || []).forEach(function(a) { if (a.email) emails.push(a.email.toLowerCase()); });
-      }
-
-      // Try to find a matching contact in SalesOS
-      let matchedCon = null, matchedAcc = null;
-      data.accounts.forEach(function(acc) {
-        acc.contacts.forEach(function(con) {
-          if (con.email && emails.includes(con.email.toLowerCase())) {
-            matchedCon = con;
-            matchedAcc = acc;
-          }
-        });
+  // ── QuickLogModal: log activity from anywhere via FAB ─────────────────────
+  const QuickLogModal = ({data, upd, closeModal}) => {
+    const allContacts = [];
+    (data.accounts||[]).forEach(acc => {
+      (acc.contacts||[]).forEach(con => {
+        allContacts.push({accId: acc.id, accName: acc.name, conId: con.id, conName: con.name});
       });
-
-      return { ...item, _matchedCon: matchedCon, _matchedAcc: matchedAcc, _emails: emails };
     });
+    allContacts.sort((a,b) => a.conName.localeCompare(b.conName));
 
-    setItems(withMatches);
-
-    // Auto-set decisions for matched items
-    const autoDecs = {};
-    withMatches.forEach(function(item) {
-      if (item._matchedCon) {
-        autoDecs[item.id] = {
-          action: "log",
-          contactId: item._matchedCon.id,
-          accId:     item._matchedAcc.id,
-          type:      item._type === "calendar" ? guessCalendarType(item.subject) : "Email"
-        };
-      }
+    const [search, setSearch] = React.useState("");
+    const [selAccId, setSelAccId] = React.useState("");
+    const [selConId, setSelConId] = React.useState("");
+    const [f, setF] = React.useState({
+      type: "Email",
+      date: new Date().toISOString().slice(0,10),
+      notes: "",
+      followUp: ""
     });
-    setDecisions(autoDecs);
-  }
+    const upF = k => e => setF(p=>({...p,[k]:e.target.value}));
 
-  function guessCalendarType(subject) {
-    if (!subject) return "Other";
-    const s = subject.toLowerCase();
-    if (/lunch|dinner|breakfast/.test(s))     return "Lunch";
-    if (/coffee|cafe|café/.test(s))           return "Coffee";
-    if (/happy hour|drinks|bar/.test(s))      return "Happy Hour";
-    if (/site|walk|field/.test(s))            return "Site Visit";
-    if (/call|phone/.test(s))                 return "Phone Call";
-    if (/proposal|bid|present/.test(s))       return "Proposal";
-    if (/event|conference|mixer|show/.test(s))return "Market Event";
-    return "Other";
-  }
+    const filtered = search.length > 1
+      ? allContacts.filter(c =>
+          c.conName.toLowerCase().includes(search.toLowerCase()) ||
+          c.accName.toLowerCase().includes(search.toLowerCase())
+        )
+      : [];
 
-  function setDecision(id, changes) {
-    setDecisions(function(d) {
-      return Object.assign({}, d, { [id]: Object.assign({}, d[id] || {}, changes) });
-    });
-  }
+    const selectedContact = allContacts.find(c => c.conId === selConId);
 
-  function save() {
-    upd(function(d) {
-      items.forEach(function(item) {
-        var dec = decisions[item.id];
-        if (!dec || dec.action !== "log" || !dec.contactId) return;
-        var acc = d.accounts.find(function(a) { return a.id === dec.accId; });
-        if (!acc) return;
-        var con = acc.contacts.find(function(c) { return c.id === dec.contactId; });
-        if (!con) return;
-
-        // Build notes from subject + preview
-        var notes = item.subject || "";
-        if (item.preview && item.preview.trim()) notes += (notes ? " — " : "") + item.preview.trim();
-
-        // Avoid logging the exact same date+type combo twice
-        var isDupe = con.activities.some(function(a) {
-          return a.date === item.date && a.type === dec.type && a.notes && a.notes.includes(item.subject || "");
-        });
-        if (isDupe) return;
-
+    const save = () => {
+      if(!selConId || !selAccId) { alert("Please select a contact first."); return; }
+      if(!f.notes.trim()) { alert("Please add a note."); return; }
+      upd(d => {
+        const acc = d.accounts.find(a=>a.id===selAccId);
+        if(!acc) return d;
+        const con = acc.contacts.find(c=>c.id===selConId);
+        if(!con) return d;
+        if(!con.activities) con.activities = [];
         con.activities.unshift({
-          id:       Math.random().toString(36).slice(2, 9),
-          type:     dec.type || "Email",
-          date:     item.date || new Date().toISOString().slice(0, 10),
-          notes:    notes.slice(0, 500),
-          followUp: null,
-          jobId:    dec.jobId || null,
-          fromOutlook: true
+          id: Date.now().toString(),
+          type: f.type,
+          date: f.date,
+          notes: f.notes,
+          followUp: f.followUp || null,
+          createdAt: new Date().toISOString()
         });
+        con.activities.sort((a,b)=>new Date(b.date)-new Date(a.date));
+        acc.lastContact = f.date;
+        return d;
       });
-      return d;
-    });
-    setSaved(true);
-  }
+      closeModal();
+    };
 
-  const filtered = tab === "all" ? items : items.filter(function(i) { return i._type === tab; });
-  const matched  = items.filter(function(i) { return !!i._matchedCon; }).length;
-  const toLog    = Object.values(decisions).filter(function(d) { return d.action === "log" && d.contactId; }).length;
-
-  if (saved) {
     return (
-      <div style={{ textAlign: "center", padding: "40px 20px" }}>
-        <div style={{ fontSize: 36, marginBottom: 12 }}>✓</div>
-        <div style={{ fontFamily: "Georgia,serif", fontSize: 18, color: "#1a1820", marginBottom: 8 }}>
-          {toLog} activities logged from Outlook
-        </div>
-        <button onClick={closeModal} style={{ padding: "8px 24px", background: "#c8980a", border: "none", borderRadius: 8, color: "#0a0d13", fontWeight: 700, cursor: "pointer", fontSize: 14 }}>
-          Done
-        </button>
-      </div>
-    );
-  }
-
-  // Not connected yet
-  if (connected === false) {
-    return (
-      <div style={{ textAlign: "center", padding: "40px 20px" }}>
-        <div style={{ fontSize: 40, marginBottom: 16 }}>📧</div>
-        <div style={{ fontFamily: "Georgia,serif", fontSize: 20, color: "#1a1820", marginBottom: 10 }}>
-          Connect Your Outlook
-        </div>
-        <div style={{ fontSize: 13, color: "#6b7280", marginBottom: 28, lineHeight: 1.7, maxWidth: 380, margin: "0 auto 28px" }}>
-          Sign in with your Fairco Microsoft account to pull recent emails and calendar events into SalesOS and log them as activities.
-        </div>
-        <a href={AUTH_URL}
-          style={{ display: "inline-block", padding: "11px 28px", background: "#0078d4", color: "#fff", borderRadius: 8, fontWeight: 700, fontSize: 14, textDecoration: "none" }}>
-          Sign in with Microsoft
-        </a>
-        <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 14 }}>
-          Only reads your Fairco account. Never writes to Outlook.
-        </div>
-      </div>
-    );
-  }
-
-  // Loading
-  if (status === "loading") {
-    return (
-      <div style={{ textAlign: "center", padding: "60px 20px", color: "#6b7280", fontSize: 13 }}>
-        <div style={{ width: 24, height: 24, border: "2px solid #c8980a", borderTopColor: "transparent", borderRadius: "50%", animation: "spin 0.8s linear infinite", margin: "0 auto 16px" }} />
-        Pulling from Outlook...
-      </div>
-    );
-  }
-
-  return (
-    <div>
-      {/* Summary bar */}
-      <div style={{ background: "#f8f7f8", borderRadius: 10, padding: "12px 16px", marginBottom: 16, display: "flex", gap: 24, alignItems: "center", flexWrap: "wrap" }}>
-        <div style={{ textAlign: "center" }}>
-          <div style={{ color: "#3a7fd4", fontWeight: 700, fontSize: 22 }}>{items.length}</div>
-          <div style={{ color: "#aaa8b0", fontSize: 10, textTransform: "uppercase", letterSpacing: "0.07em" }}>Items Pulled</div>
-        </div>
-        <div style={{ textAlign: "center" }}>
-          <div style={{ color: "#22c55e", fontWeight: 700, fontSize: 22 }}>{matched}</div>
-          <div style={{ color: "#aaa8b0", fontSize: 10, textTransform: "uppercase", letterSpacing: "0.07em" }}>Auto-Matched</div>
-        </div>
-        <div style={{ textAlign: "center" }}>
-          <div style={{ color: "#c8980a", fontWeight: 700, fontSize: 22 }}>{toLog}</div>
-          <div style={{ color: "#aaa8b0", fontSize: 10, textTransform: "uppercase", letterSpacing: "0.07em" }}>Ready to Log</div>
-        </div>
-        <button onClick={checkConnection} style={{ marginLeft: "auto", padding: "5px 14px", background: "transparent", border: "1px solid #d0cdd0", borderRadius: 8, cursor: "pointer", fontSize: 12, color: "#7a7880" }}>
-          ↻ Refresh
-        </button>
-      </div>
-
-      {/* Tab filter */}
-      <div style={{ display: "flex", borderBottom: "1px solid #e0dde0", marginBottom: 16 }}>
-        {[["all","All"],["email_sent","Sent"],["email_received","Received"],["calendar","Calendar"]].map(function(pair) {
-          var active = tab === pair[0];
-          return (
-            <button key={pair[0]} onClick={function() { setTab(pair[0]); }}
-              style={{ padding: "7px 16px", fontSize: 13, fontWeight: active ? 700 : 400, color: active ? "#c8980a" : "#7a7880", background: "none", border: "none", borderBottom: "2px solid " + (active ? "#c8980a" : "transparent"), cursor: "pointer", fontFamily: "inherit" }}>
-              {pair[1]}
-            </button>
-          );
-        })}
-      </div>
-
-      {/* Items list */}
-      <div style={{ maxHeight: 420, overflowY: "auto", paddingRight: 4 }}>
-        {filtered.length === 0 && (
-          <div style={{ color: "#aaa8b0", textAlign: "center", padding: "32px 0", fontSize: 13 }}>No items in this category.</div>
-        )}
-        {filtered.map(function(item) {
-          var dec = decisions[item.id] || {};
-          var isLogging = dec.action === "log" && dec.contactId;
-          var borderColor = isLogging ? "#22c55e60" : dec.action === "skip" ? "#aaa8b030" : "#e0dde0";
-
-          // People list for display
-          var people = [];
-          if (item._type === "email_sent")      people = (item.to || []);
-          if (item._type === "email_received")  people = item.from ? [item.from] : [];
-          if (item._type === "calendar")        people = (item.attendees || []).filter(function(a) { return a.email && !a.email.toLowerCase().includes("west@fairco"); });
-
-          return (
-            <div key={item.id} style={{ border: "1px solid " + borderColor, borderRadius: 10, padding: "12px 14px", marginBottom: 10, background: dec.action === "skip" ? "#fafafa" : "#fff", opacity: dec.action === "skip" ? 0.5 : 1 }}>
-              {/* Header row */}
-              <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 8 }}>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 3, flexWrap: "wrap" }}>
-                    <span style={{ background: item._color + "22", color: item._color, border: "1px solid " + item._color + "50", borderRadius: 6, padding: "2px 8px", fontSize: 11, fontWeight: 600 }}>
-                      {item._label}
-                    </span>
-                    <span style={{ fontSize: 11, color: "#aaa8b0" }}>{item.date}</span>
+      <div style={{display:"flex",flexDirection:"column",gap:12}}>
+        {!selectedContact ? (
+          <div>
+            <div style={{fontWeight:600,fontSize:13,color:C.textLo,marginBottom:6}}>Search Contact</div>
+            <input
+              autoFocus
+              style={{...inp, width:"100%", boxSizing:"border-box"}}
+              placeholder="Type a name or account..."
+              value={search}
+              onChange={e=>setSearch(e.target.value)}
+            />
+            {filtered.length > 0 && (
+              <div style={{marginTop:6,border:`1px solid ${C.border}`,borderRadius:8,maxHeight:200,overflowY:"auto",background:C.surface}}>
+                {filtered.map(c=>(
+                  <div
+                    key={c.conId}
+                    onClick={()=>{setSelConId(c.conId);setSelAccId(c.accId);setSearch("");}}
+                    style={{padding:"10px 14px",cursor:"pointer",borderBottom:`1px solid ${C.border}`,fontSize:13}}
+                  >
+                    <div style={{fontWeight:600,color:C.text}}>{c.conName}</div>
+                    <div style={{color:C.textLo,fontSize:12}}>{c.accName}</div>
                   </div>
-                  <div style={{ fontWeight: 700, color: "#1a1820", fontSize: 14, marginBottom: 2 }}>{item.subject || "(no subject)"}</div>
-                  {people.length > 0 && (
-                    <div style={{ fontSize: 12, color: "#6b7280" }}>
-                      {item._type === "email_sent" ? "To: " : item._type === "email_received" ? "From: " : "With: "}
-                      {people.slice(0, 3).map(function(p) { return p.name || p.email; }).join(", ")}
-                      {people.length > 3 ? " +" + (people.length - 3) + " more" : ""}
-                    </div>
-                  )}
-                  {item.preview && <div style={{ fontSize: 12, color: "#9ca3af", marginTop: 4, lineHeight: 1.4 }}>{item.preview.slice(0, 120)}{item.preview.length > 120 ? "..." : ""}</div>}
-                </div>
-                {/* Action buttons */}
-                <div style={{ display: "flex", gap: 6, marginLeft: 12, flexShrink: 0 }}>
-                  <button onClick={function() { setDecision(item.id, { action: dec.action === "log" ? null : "log", contactId: dec.contactId || (item._matchedCon ? item._matchedCon.id : null), accId: dec.accId || (item._matchedAcc ? item._matchedAcc.id : null), type: dec.type || (item._type === "calendar" ? guessCalendarType(item.subject) : "Email") }); }}
-                    style={{ padding: "3px 10px", fontSize: 11, borderRadius: 6, cursor: "pointer", border: "1px solid " + (isLogging ? "#22c55e80" : "#e0dde0"), background: isLogging ? "#22c55e22" : "transparent", color: isLogging ? "#16a34a" : "#6b7280", fontWeight: isLogging ? 700 : 400 }}>
-                    {isLogging ? "✓ Log" : "+ Log"}
-                  </button>
-                  <button onClick={function() { setDecision(item.id, { action: dec.action === "skip" ? null : "skip" }); }}
-                    style={{ padding: "3px 10px", fontSize: 11, borderRadius: 6, cursor: "pointer", border: "1px solid " + (dec.action === "skip" ? "#aaa8b080" : "#e0dde0"), background: dec.action === "skip" ? "#aaa8b022" : "transparent", color: "#9ca3af" }}>
-                    Skip
-                  </button>
-                </div>
+                ))}
               </div>
-
-              {/* Match / assign row */}
-              {dec.action === "log" && (
-                <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", paddingTop: 8, borderTop: "1px solid #f0eff0" }}>
-                  {/* Auto-matched badge */}
-                  {item._matchedCon && !dec._manualOverride && (
-                    <span style={{ fontSize: 11, color: "#16a34a", background: "#f0fdf4", border: "1px solid #86efac", borderRadius: 6, padding: "2px 8px" }}>
-                      ✓ {item._matchedCon.name} @ {item._matchedAcc && item._matchedAcc.name}
-                    </span>
-                  )}
-                  {/* Contact picker */}
-                  <select
-                    value={dec.contactId || ""}
-                    onChange={function(e) {
-                      var found = data.accounts.flatMap(function(a) { return a.contacts.map(function(c) { return { con: c, acc: a }; }); }).find(function(x) { return x.con.id === e.target.value; });
-                      setDecision(item.id, { contactId: e.target.value, accId: found ? found.acc.id : null, _manualOverride: true });
-                    }}
-                    style={{ padding: "4px 8px", borderRadius: 6, border: "1px solid #e0dde0", fontSize: 12, background: "#fff", fontFamily: "inherit" }}>
-                    <option value="">{item._matchedCon && !dec._manualOverride ? "Change contact..." : "-- Assign to contact --"}</option>
-                    {data.accounts.flatMap(function(acc) {
-                      return acc.contacts.map(function(con) { return { con: con, acc: acc }; });
-                    }).sort(function(a, b) { return a.con.name.localeCompare(b.con.name); }).map(function(x) {
-                      return <option key={x.con.id} value={x.con.id}>{x.con.name} — {x.acc.name}</option>;
-                    })}
-                  </select>
-                  {/* Activity type picker */}
-                  <select
-                    value={dec.type || "Email"}
-                    onChange={function(e) { setDecision(item.id, { type: e.target.value }); }}
-                    style={{ padding: "4px 8px", borderRadius: 6, border: "1px solid #e0dde0", fontSize: 12, background: "#fff", fontFamily: "inherit" }}>
-                    {["Email","Phone Call","Coffee","Lunch","Happy Hour","Site Visit","Market Event","Proposal","LinkedIn Message","Other"].map(function(t) {
-                      return <option key={t} value={t}>{t}</option>;
-                    })}
-                  </select>
-                  {/* Optional job link */}
-                  {dec.accId && (function() {
-                    var acc = data.accounts.find(function(a) { return a.id === dec.accId; });
-                    var jobs = acc ? acc.jobs : [];
-                    if (jobs.length === 0) return null;
-                    return (
-                      <select value={dec.jobId || ""} onChange={function(e) { setDecision(item.id, { jobId: e.target.value || null }); }}
-                        style={{ padding: "4px 8px", borderRadius: 6, border: "1px solid #e0dde0", fontSize: 12, background: "#fff", fontFamily: "inherit" }}>
-                        <option value="">No job linked</option>
-                        {jobs.map(function(j) { return <option key={j.id} value={j.id}>{j.name}</option>; })}
-                      </select>
-                    );
-                  })()}
-                </div>
-              )}
+            )}
+            {search.length > 1 && filtered.length === 0 && (
+              <div style={{marginTop:6,color:C.textLo,fontSize:12}}>No contacts found</div>
+            )}
+          </div>
+        ) : (
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",background:C.bg,borderRadius:8,padding:"8px 12px"}}>
+            <div>
+              <div style={{fontWeight:700,color:C.text,fontSize:13}}>{selectedContact.conName}</div>
+              <div style={{color:C.textLo,fontSize:12}}>{selectedContact.accName}</div>
             </div>
-          );
-        })}
-      </div>
+            <button onClick={()=>{setSelConId("");setSelAccId("");}} style={{background:"none",border:"none",color:C.textLo,cursor:"pointer",fontSize:18}}>✕</button>
+          </div>
+        )}
 
-      {/* Footer */}
-      <div style={{ display: "flex", gap: 10, marginTop: 18, alignItems: "center" }}>
-        <button onClick={closeModal} style={{ padding: "8px 18px", background: "transparent", border: "1px solid #d0cdd0", borderRadius: 8, cursor: "pointer", fontSize: 13, color: "#7a7880" }}>
-          Cancel
-        </button>
+        <div style={{display:"flex",gap:8}}>
+          <div style={{flex:1}}>
+            <div style={{fontWeight:600,fontSize:13,color:C.textLo,marginBottom:4}}>Type</div>
+            <select style={{...inp,width:"100%"}} value={f.type} onChange={upF("type")}>
+              {ACTIVITY_TYPES.map(t=><option key={t} value={t}>{t}</option>)}
+            </select>
+          </div>
+          <div style={{flex:1}}>
+            <div style={{fontWeight:600,fontSize:13,color:C.textLo,marginBottom:4}}>Date</div>
+            <input type="date" style={{...inp,width:"100%"}} value={f.date} onChange={upF("date")}/>
+          </div>
+        </div>
+
+        <div>
+          <div style={{fontWeight:600,fontSize:13,color:C.textLo,marginBottom:4}}>Notes</div>
+          <textarea
+            style={{...inp,width:"100%",minHeight:80,resize:"vertical",boxSizing:"border-box"}}
+            placeholder="What happened? Key details..."
+            value={f.notes}
+            onChange={upF("notes")}
+          />
+        </div>
+
+        <div>
+          <div style={{fontWeight:600,fontSize:13,color:C.textLo,marginBottom:4}}>Follow-up Date <span style={{fontWeight:400}}>(optional)</span></div>
+          <input type="date" style={{...inp,width:"100%"}} value={f.followUp} onChange={upF("followUp")}/>
+        </div>
+
         <button
           onClick={save}
-          disabled={toLog === 0}
-          style={{ flex: 1, padding: "10px 18px", background: toLog > 0 ? "#c8980a" : "#e8e7e8", border: "none", borderRadius: 8, cursor: toLog > 0 ? "pointer" : "not-allowed", fontWeight: 700, fontSize: 14, color: toLog > 0 ? "#0a0d13" : "#aaa8b0" }}>
-          {toLog > 0 ? "Log " + toLog + " Activities from Outlook" : "Select items to log"}
+          style={{...btn(null,C.gold,"transparent"),width:"100%",justifyContent:"center",padding:"12px",fontSize:14,fontWeight:700,color:"#0a0d13"}}
+        >
+          ＋ Log Activity
         </button>
       </div>
-    </div>
-  );
-}
+    );
+  };
 
 function CampaignForm({contactId, data, upd, onClose}) {
   const allContacts = data.accounts.flatMap(a=>a.contacts.map(con=>({con,acc:a})));
@@ -1377,8 +1143,410 @@ function CampaignForm({contactId, data, upd, onClose}) {
   );
 }
 
+// ── DraftMessageModal: Claude-powered campaign message drafts ─────────────────
+const CAMPAIGN_TEMPLATES = {
+  "Cold Email": {
+    label: "Cold Email",
+    template: `Subject: Building the right landscape partner for your next project
+Hi [First Name],
+I wanted to reach out and introduce myself. My name is West Tunnell, and I'm with Fairco Inc. We specialize in commercial landscape infrastructure and have been helping shape some of the Valley's most recognized developments for more than 20 years.
+Our team has partnered with many of the industry's leading developers and construction groups, including Taylor Morrison, Lennar, Meritage, EPS Group, RLM, and SilverFern Companies/Otago Development. We have delivered over 90% of the landscape development at Verrado over the past two decades, covering nearly 9,000 acres. We also completed the full 3,000+ acre Morrison Ranch master-planned community, the initial install at Talking Stick Resort Casino in Scottsdale, the first three parcels and three parks for Howard Hughes' Teravalis MPC, and ongoing development work for Harvard Investments at Estrella.
+I share that because when it comes to large-scale landscape infrastructure, Fairco brings both proven experience and the ability to execute at a very high level. We understand what owners, developers, and general contractors need from a trade partner: reliability, quality, responsiveness, and the confidence that the work will get done right.
+I'd welcome the opportunity to connect and learn more about your upcoming projects, as well as discuss how Fairco can earn a place on your bid list and become a trusted partner for your team. Whether it's coffee, lunch, a round of golf, or even catching a Suns game, I'd be glad to set something up at your convenience.
+What does your schedule look like over the next couple of weeks?
+Best regards, West`
+  },
+  "LinkedIn Connection": {
+    label: "LinkedIn Connection Request",
+    template: `Hi [First Name], I'm West Tunnell with Fairco Inc. — we handle large-scale commercial landscape infrastructure here in the Valley. For 20+ years, we've worked with groups like Taylor Morrison, Lennar, and Harvard Investments to help bring major master-planned communities and developments to life. I'd love to connect and learn what projects you're focused on this year.`
+  },
+  "LinkedIn Follow-up 1": {
+    label: "LinkedIn Follow-up 1",
+    template: `Thanks for connecting, [First Name]. Fairco's been behind projects like Verrado, Morrison Ranch, and the first phases of Teravalis — we specialize in complex, high-visibility landscape installs that require strong planning and reliable execution. Curious — what kind of development work is keeping your team busiest right now?`
+  },
+  "LinkedIn Follow-up 2": {
+    label: "LinkedIn Follow-up 2",
+    template: `[First Name], I'd love to see if Fairco could be a resource for any upcoming work you have in the pipeline. We aim to make landscape infrastructure one less thing for GCs and developers to worry about — consistent quality, responsiveness, and accountability. Would you be open to a quick call or coffee sometime this month?`
+  },
+  "Post Proposal": {
+    label: "Post Proposal Follow-up",
+    template: `Hey [First Name], Wanted to touch base on the [Project Name] project. If we need to clarify any scopes or offer any additional information, please let us know and we would be happy to help where we can! We look forward to working with [Company] and delivering a beautiful project for you and your team. Talk soon, West`
+  },
+  "Post Loss": {
+    label: "After a Loss",
+    template: `[First Name], Thanks for the update, we appreciate you letting us know. If possible, can you provide any feedback at all where we may have been high or missed the mark compared to others. That's the only way we can try and get more competitive for y'all as we try to earn your business. We look forward to getting in the dirt with you sooner or later. Talk soon, West`
+  },
+  "Post Meeting": {
+    label: "Post Meeting / Coffee",
+    template: `Hey [First Name], really enjoyed grabbing [coffee/lunch] today. Always good to put a face to a name. Sounds like you've got some exciting projects coming up soon — I'd love to stay on your radar as things develop. If anything comes up where Fairco can be a resource, don't hesitate to reach out. Talk soon, West`
+  },
+  "Re-engagement": {
+    label: "Re-engagement (Gone Cold)",
+    template: `Hey [First Name], just wanted to check back in — it's been a little while. Hope things are going well on your end. Curious if anything new has come up on the [project/development] side that we might be able to help with. Always happy to chat. Talk soon, West`
+  }
+};
+
+const DraftMessageModal = ({item, data, upd, onClose}) => {
+  const {con, acc, camp, touch, diff} = item;
+  const [templateKey, setTemplateKey] = React.useState(Object.keys(CAMPAIGN_TEMPLATES)[0]);
+  const [draft, setDraft] = React.useState("");
+  const [loading, setLoading] = React.useState(false);
+  const [copied, setCopied] = React.useState(false);
+  const [error, setError] = React.useState("");
+
+  // Gather context about this contact
+  const recentActivities = (con.activities||[]).slice(0,3).map(a=>`${a.date} - ${a.type}: ${a.notes}`).join("\n");
+  const jobs = (acc.jobs||[]).filter(j=>j.status==="active"||j.status==="bidding").map(j=>`${j.name} (${j.status})`).join(", ");
+
+  const generateDraft = async () => {
+    setLoading(true);
+    setError("");
+    setDraft("");
+    const template = CAMPAIGN_TEMPLATES[templateKey];
+    const prompt = `You are drafting a sales outreach message for West Tunnell, Business Development at Fairco Inc., a commercial landscape infrastructure company in Arizona.
+
+West's writing style: conversational but professional, gets to the point fast, uses industry language ("get in the dirt", "in the pipeline", "bid list"), short sentences, no corporate fluff, signs off as just "West", never burns bridges, always ends with a soft open door.
+
+TEMPLATE TO USE AS FOUNDATION:
+${template.template}
+
+PERSONALIZE THIS FOR:
+- Contact: ${con.name}${con.title?", "+con.title:""}
+- Company: ${acc.name}${acc.tier?" ("+acc.tier+")":""}
+- Notes on contact: ${con.notes||"None"}
+- Active jobs/bids: ${jobs||"None listed"}
+- Recent activity: ${recentActivities||"No prior contact logged"}
+- Campaign touch: ${touch.label}
+- Days until due: ${diff===0?"Today":diff===1?"Tomorrow":diff<0?Math.abs(diff)+" days overdue":diff+" days"}
+
+INSTRUCTIONS:
+- Use the template as the base but personalize it with the contact's specific details
+- Replace [First Name] with ${con.name.split(" ")[0]}
+- Replace [Company] with ${acc.name}
+- If there are active jobs, reference them naturally where relevant
+- Keep West's voice — casual, direct, genuine
+- Do NOT add fluff or make it sound like an AI wrote it
+- Return ONLY the message text, no preamble or explanation`;
+
+    try {
+      const res = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {"Content-Type":"application/json"},
+        body: JSON.stringify({
+          model: "claude-sonnet-4-20250514",
+          max_tokens: 1000,
+          messages: [{role:"user", content: prompt}]
+        })
+      });
+      const json = await res.json();
+      const text = json.content&&json.content[0]&&json.content[0].text;
+      if(text) setDraft(text);
+      else setError("No response from Claude. Try again.");
+    } catch(e) {
+      setError("Error generating draft: "+e.message);
+    }
+    setLoading(false);
+  };
+
+  const markSent = () => {
+    upd(d => {
+      const a = d.accounts.find(x=>x.id===acc.id);
+      if(!a) return d;
+      const c = a.contacts.find(x=>x.id===con.id);
+      if(!c||!c.campaign) return d;
+      const t = c.campaign.touches.find(x=>x.label===touch.label&&!x.completedAt);
+      if(t) t.completedAt = new Date().toISOString().slice(0,10);
+      if(!c.activities) c.activities=[];
+      c.activities.unshift({
+        id: Date.now().toString(),
+        type: templateKey.includes("LinkedIn")?"LinkedIn Message":"Email",
+        date: new Date().toISOString().slice(0,10),
+        notes: `Campaign touch: ${touch.label}. ${draft.slice(0,120)}...`,
+        followUp: null,
+        createdAt: new Date().toISOString()
+      });
+      a.lastContact = new Date().toISOString().slice(0,10);
+      return d;
+    });
+    onClose();
+  };
+
+  const copy = () => {
+    navigator.clipboard.writeText(draft).then(()=>{setCopied(true);setTimeout(()=>setCopied(false),2000);});
+  };
+
+  return (
+    <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.7)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+      <div style={{background:"#13181a",border:"1px solid #2a2f35",borderRadius:14,padding:20,width:"100%",maxWidth:560,maxHeight:"90vh",overflowY:"auto"}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16}}>
+          <div>
+            <div style={{fontWeight:700,fontSize:15,color:"#f1f0f4"}}>✍ Draft Message</div>
+            <div style={{fontSize:12,color:"#6b7280"}}>{con.name} @ {acc.name} · {touch.label}</div>
+          </div>
+          <button onClick={onClose} style={{background:"none",border:"none",color:"#6b7280",cursor:"pointer",fontSize:20}}>✕</button>
+        </div>
+
+        <div style={{marginBottom:12}}>
+          <div style={{fontSize:12,fontWeight:600,color:"#9ca3af",marginBottom:6}}>Select Template</div>
+          <select
+            value={templateKey}
+            onChange={e=>setTemplateKey(e.target.value)}
+            style={{width:"100%",background:"#1e2530",border:"1px solid #2a2f35",borderRadius:8,padding:"8px 12px",color:"#f1f0f4",fontSize:13}}
+          >
+            {Object.entries(CAMPAIGN_TEMPLATES).map(([k,v])=><option key={k} value={k}>{v.label}</option>)}
+          </select>
+        </div>
+
+        <button
+          onClick={generateDraft}
+          disabled={loading}
+          style={{width:"100%",background:"#7c3aed",border:"none",borderRadius:8,padding:"10px",fontSize:13,fontWeight:700,color:"#fff",cursor:loading?"not-allowed":"pointer",marginBottom:12,opacity:loading?0.7:1}}
+        >
+          {loading?"⏳ Generating...":"✨ Generate Draft with Claude"}
+        </button>
+
+        {error && <div style={{color:"#ef4444",fontSize:12,marginBottom:10}}>{error}</div>}
+
+        {draft && (
+          <>
+            <div style={{marginBottom:8}}>
+              <div style={{fontSize:12,fontWeight:600,color:"#9ca3af",marginBottom:6}}>Draft — edit before sending</div>
+              <textarea
+                value={draft}
+                onChange={e=>setDraft(e.target.value)}
+                style={{width:"100%",minHeight:200,background:"#1e2530",border:"1px solid #2a2f35",borderRadius:8,padding:"10px 12px",color:"#f1f0f4",fontSize:13,lineHeight:1.5,resize:"vertical",boxSizing:"border-box"}}
+              />
+            </div>
+            <div style={{display:"flex",gap:8}}>
+              <button onClick={copy} style={{flex:1,background:"#1e2530",border:"1px solid #2a2f35",borderRadius:8,padding:"10px",fontSize:13,fontWeight:600,color:copied?"#22c55e":"#f1f0f4",cursor:"pointer"}}>
+                {copied?"✓ Copied!":"📋 Copy"}
+              </button>
+              <button onClick={markSent} style={{flex:2,background:"#22c55e",border:"none",borderRadius:8,padding:"10px",fontSize:13,fontWeight:700,color:"#0a0d13",cursor:"pointer"}}>
+                ✓ Mark Sent & Log Activity
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+};
+
+
+// ── LinkedInImportModal: Smart CSV filter using Claude ────────────────────────
+const LinkedInImportModal = ({data, upd, onClose}) => {
+  const [step, setStep] = React.useState("upload"); // upload | filtering | review | done
+  const [rawContacts, setRawContacts] = React.useState([]);
+  const [filtered, setFiltered] = React.useState([]);
+  const [selected, setSelected] = React.useState({});
+  const [progress, setProgress] = React.useState("");
+  const [error, setError] = React.useState("");
+
+  const handleFile = async (e) => {
+    const file = e.target.files[0];
+    if(!file) return;
+    setError("");
+    const text = await file.text();
+    // Parse CSV
+    const lines = text.split("\n").filter(l=>l.trim());
+    if(lines.length < 2) { setError("CSV appears empty"); return; }
+    const headers = lines[0].split(",").map(h=>h.replace(/"/g,"").trim().toLowerCase());
+    const firstNameIdx = headers.findIndex(h=>h.includes("first"));
+    const lastNameIdx = headers.findIndex(h=>h.includes("last"));
+    const companyIdx = headers.findIndex(h=>h.includes("company")||h.includes("organization"));
+    const positionIdx = headers.findIndex(h=>h.includes("position")||h.includes("title")||h.includes("job"));
+    const emailIdx = headers.findIndex(h=>h.includes("email"));
+    const dateIdx = headers.findIndex(h=>h.includes("connected")||h.includes("date"));
+
+    const contacts = lines.slice(1).map(line=>{
+      const cols = line.match(/(".*?"|[^,]+)(?=\s*,|\s*$)/g)||line.split(",");
+      const clean = cols.map(c=>(c||"").replace(/^"|"$/g,"").trim());
+      return {
+        firstName: firstNameIdx>=0?clean[firstNameIdx]:"",
+        lastName: lastNameIdx>=0?clean[lastNameIdx]:"",
+        company: companyIdx>=0?clean[companyIdx]:"",
+        position: positionIdx>=0?clean[positionIdx]:"",
+        email: emailIdx>=0?clean[emailIdx]:"",
+        connectedOn: dateIdx>=0?clean[dateIdx]:""
+      };
+    }).filter(c=>c.firstName||c.company);
+
+    setRawContacts(contacts);
+    filterWithClaude(contacts);
+  };
+
+  const filterWithClaude = async (contacts) => {
+    setStep("filtering");
+    setProgress("Analyzing "+contacts.length+" contacts...");
+
+    // Process in batches of 50
+    const batchSize = 50;
+    const allFiltered = [];
+
+    for(let i=0; i<contacts.length; i+=batchSize) {
+      const batch = contacts.slice(i, i+batchSize);
+      setProgress(`Analyzing contacts ${i+1}–${Math.min(i+batchSize, contacts.length)} of ${contacts.length}...`);
+
+      const prompt = `You are filtering a LinkedIn connections list for West Tunnell, BD at Fairco Inc. — a commercial landscape infrastructure company doing large-scale projects in Arizona, California, and Nevada. Target prospects are: GCs (general contractors), real estate developers, project owners, land developers, civil engineers at development firms, construction managers, estimators at GC/developer firms.
+
+NOT relevant: recruiters, HR, marketing, software/tech, finance/banking, retail, healthcare, random personal contacts, people with no company listed.
+
+For each contact below, respond with ONLY a JSON array. Each item: {"idx": number, "relevant": true/false, "reason": "brief reason", "suggestedTier": "Priority"|"Developing"|"Long Game"|null}
+
+Contacts (index, name, company, position):
+${batch.map((c,j)=>`${i+j}. ${c.firstName} ${c.lastName} | ${c.company} | ${c.position}`).join("\n")}
+
+Return ONLY the JSON array, no other text.`;
+
+      try {
+        const res = await fetch("https://api.anthropic.com/v1/messages", {
+          method:"POST",
+          headers:{"Content-Type":"application/json"},
+          body: JSON.stringify({
+            model:"claude-sonnet-4-20250514",
+            max_tokens:2000,
+            messages:[{role:"user",content:prompt}]
+          })
+        });
+        const json = await res.json();
+        const text = json.content&&json.content[0]&&json.content[0].text||"[]";
+        const clean = text.replace(/```json|```/g,"").trim();
+        const results = JSON.parse(clean);
+        results.forEach(r=>{
+          if(r.relevant) {
+            const c = contacts[r.idx];
+            allFiltered.push({...c, reason:r.reason, suggestedTier:r.suggestedTier, originalIdx:r.idx});
+          }
+        });
+      } catch(e) {
+        console.error("Batch error:", e);
+      }
+    }
+
+    setFiltered(allFiltered);
+    const initSel = {};
+    allFiltered.forEach((c,i)=>{ initSel[i]=true; });
+    setSelected(initSel);
+    setStep("review");
+  };
+
+  const importSelected = () => {
+    const toImport = filtered.filter((_,i)=>selected[i]);
+    upd(d => {
+      toImport.forEach(c => {
+        const fullName = (c.firstName+" "+c.lastName).trim();
+        const companyName = c.company||"Unknown";
+        // Find or create account
+        let acc = d.accounts.find(a=>a.name.toLowerCase()===companyName.toLowerCase());
+        if(!acc) {
+          acc = {
+            id: "acc_li_"+Date.now()+"_"+Math.random().toString(36).slice(2,6),
+            name: companyName,
+            tier: c.suggestedTier||"Long Game",
+            contacts:[],
+            jobs:[],
+            notes:"",
+            lastContact:null,
+            market:[]
+          };
+          d.accounts.push(acc);
+        }
+        // Add contact if not duplicate
+        const exists = acc.contacts.find(x=>x.name.toLowerCase()===fullName.toLowerCase());
+        if(!exists && fullName.trim()) {
+          acc.contacts.push({
+            id: "con_li_"+Date.now()+"_"+Math.random().toString(36).slice(2,6),
+            name: fullName,
+            title: c.position||"",
+            email: c.email||"",
+            phone:"",
+            notes:"Imported from LinkedIn"+( c.connectedOn?" — connected "+c.connectedOn:""),
+            activities:[],
+            campaign:null
+          });
+        }
+      });
+      return d;
+    });
+    setStep("done");
+  };
+
+  return (
+    <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.75)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+      <div style={{background:"#13181a",border:"1px solid #2a2f35",borderRadius:14,padding:20,width:"100%",maxWidth:580,maxHeight:"90vh",overflowY:"auto"}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16}}>
+          <div style={{fontWeight:700,fontSize:15,color:"#f1f0f4"}}>💼 LinkedIn Smart Import</div>
+          <button onClick={onClose} style={{background:"none",border:"none",color:"#6b7280",cursor:"pointer",fontSize:20}}>✕</button>
+        </div>
+
+        {step==="upload" && (
+          <div>
+            <div style={{fontSize:13,color:"#9ca3af",marginBottom:16,lineHeight:1.6}}>
+              Export your LinkedIn connections as a CSV, then upload it here. Claude will scan every contact and filter down to GCs, developers, and owners relevant to Fairco BD.
+              <br/><br/>
+              <strong style={{color:"#f1f0f4"}}>How to export:</strong> LinkedIn → Me → Settings & Privacy → Data Privacy → Get a copy of your data → Connections → Request archive (arrives by email in ~10 min)
+            </div>
+            {error && <div style={{color:"#ef4444",fontSize:12,marginBottom:10}}>{error}</div>}
+            <label style={{display:"block",border:"2px dashed #2a2f35",borderRadius:10,padding:"30px",textAlign:"center",cursor:"pointer",color:"#6b7280",fontSize:13}}>
+              <div style={{fontSize:24,marginBottom:8}}>📁</div>
+              Click to upload LinkedIn connections CSV
+              <input type="file" accept=".csv" onChange={handleFile} style={{display:"none"}}/>
+            </label>
+          </div>
+        )}
+
+        {step==="filtering" && (
+          <div style={{textAlign:"center",padding:"40px 0"}}>
+            <div style={{fontSize:28,marginBottom:12}}>⏳</div>
+            <div style={{fontWeight:600,color:"#f1f0f4",marginBottom:8}}>Analyzing with Claude...</div>
+            <div style={{fontSize:13,color:"#6b7280"}}>{progress}</div>
+          </div>
+        )}
+
+        {step==="review" && (
+          <div>
+            <div style={{marginBottom:12,fontSize:13,color:"#9ca3af"}}>
+              Found <strong style={{color:"#f1f0f4"}}>{filtered.length} relevant contacts</strong> out of {rawContacts.length} total. Uncheck anyone you want to skip.
+            </div>
+            <div style={{maxHeight:350,overflowY:"auto",marginBottom:12}}>
+              {filtered.map((c,i)=>(
+                <div key={i} style={{display:"flex",gap:10,alignItems:"flex-start",padding:"8px 0",borderBottom:"1px solid #1e2530"}}>
+                  <input type="checkbox" checked={!!selected[i]} onChange={e=>setSelected(p=>({...p,[i]:e.target.checked}))} style={{marginTop:3,flexShrink:0}}/>
+                  <div style={{flex:1}}>
+                    <div style={{fontWeight:600,fontSize:13,color:"#f1f0f4"}}>{c.firstName} {c.lastName} <span style={{fontWeight:400,color:"#6b7280"}}>@ {c.company}</span></div>
+                    <div style={{fontSize:12,color:"#9ca3af"}}>{c.position}</div>
+                    <div style={{fontSize:11,color:"#4b5563",marginTop:2}}>{c.reason} {c.suggestedTier&&<span style={{color:"#7c3aed"}}>→ {c.suggestedTier}</span>}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div style={{display:"flex",gap:8}}>
+              <button onClick={()=>setSelected(Object.fromEntries(filtered.map((_,i)=>[i,false])))} style={{flex:1,background:"#1e2530",border:"1px solid #2a2f35",borderRadius:8,padding:"8px",fontSize:12,color:"#9ca3af",cursor:"pointer"}}>Deselect All</button>
+              <button onClick={importSelected} style={{flex:2,background:"#22c55e",border:"none",borderRadius:8,padding:"10px",fontSize:13,fontWeight:700,color:"#0a0d13",cursor:"pointer"}}>
+                Import {Object.values(selected).filter(Boolean).length} Contacts
+              </button>
+            </div>
+          </div>
+        )}
+
+        {step==="done" && (
+          <div style={{textAlign:"center",padding:"30px 0"}}>
+            <div style={{fontSize:36,marginBottom:12}}>✅</div>
+            <div style={{fontWeight:700,fontSize:15,color:"#f1f0f4",marginBottom:8}}>Import Complete</div>
+            <div style={{fontSize:13,color:"#6b7280",marginBottom:20}}>Contacts and accounts have been added to SalesOS.</div>
+            <button onClick={onClose} style={{background:"#7c3aed",border:"none",borderRadius:8,padding:"10px 24px",fontSize:13,fontWeight:700,color:"#fff",cursor:"pointer"}}>Done</button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+
 function CampaignPanel({data, upd, setModal, setForm, setSA, setSC, setView, showCampaignForm, setShowCampaignForm}) {
   const navTo2 = function(accId, conId) { setSA(accId); setSC(conId); setView("contact"); };
+  const [draftModal, setDraftModal] = React.useState(null); // {con, acc, camp, touch, touchType}
+  const [linkedInModal, setLinkedInModal] = React.useState(false);
 
   // Gather all active campaigns
   const campaigns = [];
@@ -1394,23 +1562,40 @@ function CampaignPanel({data, upd, setModal, setForm, setSA, setSC, setView, sho
   });
   campaigns.sort(function(a,b){ return (a.diff===null?999:a.diff)-(b.diff===null?999:b.diff); });
 
+  const overdue = campaigns.filter(c=>c.diff!==null&&c.diff<0).length;
+  const dueSoon = campaigns.filter(c=>c.diff!==null&&c.diff>=0&&c.diff<=3).length;
+
   return (
     <div>
-      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16}}>
+      {/* Summary bar */}
+      {(overdue>0||dueSoon>0) && (
+        <div style={{display:"flex",gap:8,marginBottom:16,flexWrap:"wrap"}}>
+          {overdue>0&&<div style={{background:"#ef444420",border:"1px solid #ef444440",borderRadius:8,padding:"6px 14px",fontSize:12,fontWeight:700,color:"#ef4444"}}>⚠ {overdue} Overdue</div>}
+          {dueSoon>0&&<div style={{background:"#c8980a20",border:"1px solid #c8980a40",borderRadius:8,padding:"6px 14px",fontSize:12,fontWeight:700,color:"#c8980a"}}>🔔 {dueSoon} Due Within 3 Days</div>}
+        </div>
+      )}
+
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16,flexWrap:"wrap",gap:8}}>
         <div style={{fontSize:13,color:"#6b7280"}}>{campaigns.length} active campaign{campaigns.length!==1?"s":""}</div>
-        <button onClick={function(){setShowCampaignForm("new"); setModal("startCampaign");}} style={{padding:"6px 16px",background:"#7c3aed",border:"none",borderRadius:8,cursor:"pointer",fontWeight:700,fontSize:13,color:"#fff"}}>+ New Campaign</button>
+        <div style={{display:"flex",gap:8}}>
+          <button onClick={function(){setLinkedInModal(true);}} style={{padding:"6px 14px",background:"#0077b5",border:"none",borderRadius:8,cursor:"pointer",fontWeight:700,fontSize:12,color:"#fff"}}>💼 LinkedIn Import</button>
+          <button onClick={function(){setShowCampaignForm("new"); setModal("startCampaign");}} style={{padding:"6px 16px",background:"#7c3aed",border:"none",borderRadius:8,cursor:"pointer",fontWeight:700,fontSize:13,color:"#fff"}}>+ New Campaign</button>
+        </div>
       </div>
+
       {campaigns.length===0 && (
         <div style={{textAlign:"center",color:"#6b7280",fontSize:13,padding:"40px 0"}}>
           No active campaigns. Start one from any contact page or click New Campaign above.
         </div>
       )}
+
       <div style={{display:"flex",flexDirection:"column",gap:10}}>
         {campaigns.map(function(item, i) {
           var isOverdueItem = item.diff!==null && item.diff<0;
-          var isDueSoon = item.diff!==null && item.diff>=0 && item.diff<=7;
+          var isDueSoon = item.diff!==null && item.diff>=0 && item.diff<=3;
+          var isComingUp = item.diff!==null && item.diff>3 && item.diff<=7;
           return (
-            <div key={i} style={{background:"#13181a",border:"1px solid "+(isOverdueItem?"#ef444440":isDueSoon?"#c8980a40":"#2a2f35"),borderRadius:10,padding:"14px 16px"}}>
+            <div key={i} style={{background:"#13181a",border:"1px solid "+(isOverdueItem?"#ef444440":isDueSoon?"#c8980a40":isComingUp?"#7c3aed30":"#2a2f35"),borderRadius:10,padding:"14px 16px"}}>
               <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",marginBottom:10}}>
                 <div>
                   <div style={{fontWeight:700,fontSize:14,color:"#f1f0f4",marginBottom:2}}>{item.con.name} <span style={{fontWeight:400,color:"#6b7280",fontSize:13}}>@ {item.acc.name}</span></div>
@@ -1433,22 +1618,35 @@ function CampaignPanel({data, upd, setModal, setForm, setSA, setSC, setView, sho
                 })}
               </div>
               {item.next && (
-                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-                  <div style={{fontSize:13,color:isOverdueItem?"#ef4444":isDueSoon?"#c8980a":"#9ca3af"}}>
-                    {isOverdueItem?"⚠ Overdue — ":isDueSoon?"Due soon — ":"Next: "}
-                    <strong style={{color:isOverdueItem?"#ef4444":isDueSoon?"#c8980a":"#d1d5db"}}>{item.next.label}</strong>
-                    {item.next.dueDate&&" · "+item.next.dueDate}
+                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:8}}>
+                  <div style={{fontSize:13,color:isOverdueItem?"#ef4444":isDueSoon?"#c8980a":isComingUp?"#a78bfa":"#9ca3af"}}>
+                    {isOverdueItem?"⚠ Overdue — ":isDueSoon?"🔔 Due soon — ":isComingUp?"📅 Coming up — ":"Next: "}
+                    <strong style={{color:isOverdueItem?"#ef4444":isDueSoon?"#c8980a":isComingUp?"#a78bfa":"#d1d5db"}}>{item.next.label}</strong>
+                    {item.next.dueDate&&" · "+(item.diff===0?"Today":item.diff===1?"Tomorrow":item.diff<0?Math.abs(item.diff)+" days overdue":item.diff+" days")}
                   </div>
-                  <div style={{fontSize:12,color:"#4b5563"}}>{item.done}/{item.camp.touches.length} touches done</div>
+                  <div style={{display:"flex",gap:6,alignItems:"center"}}>
+                    <div style={{fontSize:12,color:"#4b5563"}}>{item.done}/{item.camp.touches.length} done</div>
+                    <button
+                      onClick={function(){setDraftModal({con:item.con,acc:item.acc,camp:item.camp,touch:item.next,diff:item.diff});}}
+                      style={{padding:"4px 12px",background:"#7c3aed",border:"none",borderRadius:6,cursor:"pointer",fontSize:12,fontWeight:700,color:"#fff"}}
+                    >✍ Draft Message</button>
+                  </div>
                 </div>
               )}
             </div>
           );
         })}
       </div>
+
+      {/* Draft Message Modal */}
+      {draftModal && <DraftMessageModal item={draftModal} data={data} upd={upd} onClose={()=>setDraftModal(null)} />}
+
+      {/* LinkedIn Import Modal */}
+      {linkedInModal && <LinkedInImportModal data={data} upd={upd} onClose={()=>setLinkedInModal(false)} />}
     </div>
   );
 }
+
 
 
 function App({demoMode, onSignOut}) {
@@ -2398,7 +2596,7 @@ function App({demoMode, onSignOut}) {
         }
 
                 if(modal==="contactImport") return <Modal title="Import Contacts from Screenshot" wide onClose={closeModal}><ContactImportModal data={data} upd={upd} closeModal={closeModal} /></Modal>;
-    if(modal==="outlookSync") return <Modal title="Outlook Sync" wide onClose={closeModal}><OutlookSyncModal data={data} upd={upd} closeModal={closeModal} /></Modal>;
+    if(modal==="quickLog") return <Modal title="Log Activity" onClose={closeModal}><QuickLogModal data={data} upd={upd} closeModal={closeModal} /></Modal>;
     if(modal==="startCampaign") return <Modal title="Start Touchpoint Campaign" wide onClose={closeModal}><CampaignForm contactId={showCampaignForm} data={data} upd={upd} onClose={closeModal}/></Modal>;
       if(modal==="settings") return (
       <Modal title="Settings" onClose={closeModal}>
@@ -3737,7 +3935,6 @@ function App({demoMode, onSignOut}) {
             {syncStatus==="saved"&&<span style={{fontSize:11,color:C.green}}>✓ Synced</span>}
             {syncStatus==="error"&&<span style={{fontSize:11,color:C.red}}>Sync error</span>}
             <button style={{...btn(null,"#7c3aed","#7c3aed40"),minWidth:110,justifyContent:"center"}} onClick={()=>setModal("contactImport")}>+ Import Contacts</button>
-            <button style={{...btn(null,"#0078d4","#0078d430"),minWidth:110,justifyContent:"center"}} onClick={()=>setModal("outlookSync")}>📧 Outlook Sync</button>
             <button style={btn(null,C.textLo,C.border2)} onClick={()=>{setForm({});setModal("settings");}}>Settings</button>
             <button style={btn(null,C.red,"#3d1e1e")} onClick={onSignOut}>Sign Out</button>
           </div>
@@ -3748,7 +3945,6 @@ function App({demoMode, onSignOut}) {
         <div style={{background:C.surface,borderBottom:`1px solid ${C.border}`,padding:"12px 16px",display:"flex",flexDirection:"column",gap:8,zIndex:99}}>
           <button style={{...btn(null,C.textLo,C.border2),justifyContent:"center"}} onClick={()=>{setModal("globalSearch");setMobileMenuOpen(false);}}>🔍 Search</button>
           <button style={{...btn(null,"#7c3aed","#7c3aed40"),justifyContent:"center"}} onClick={()=>{setModal("contactImport");setMobileMenuOpen(false);}}>+ Import Contacts</button>
-          <button style={{...btn(null,"#0078d4","#0078d430"),justifyContent:"center"}} onClick={()=>{setModal("outlookSync");setMobileMenuOpen(false);}}>📧 Outlook Sync</button>
           <button onClick={()=>{exportData();setMobileMenuOpen(false);}} style={{...btn(null,exportFlash?C.green:C.blue,exportFlash?C.green+"60":C.border2),justifyContent:"center",transition:"all 0.3s"}}>{exportFlash?"✓ Saved!":"↓ Export"}</button>
           <button style={{...btn(null,C.textLo,C.border2),justifyContent:"center"}} onClick={()=>{setForm({});setModal("settings");setMobileMenuOpen(false);}}>⚙ Settings</button>
           <button style={{...btn(null,C.red,"#3d1e1e"),justifyContent:"center"}} onClick={onSignOut}>Sign Out</button>
@@ -3780,14 +3976,7 @@ function App({demoMode, onSignOut}) {
             <span style={{fontSize:18}}>🔍</span>Search
           </button>
           <button
-            onClick={()=>{
-              if(view==="contact"&&selCon){
-                setForm({type:"Email",date:new Date().toISOString().slice(0,10),notes:"",followUp:"",jobId:null});
-                setModal("addAct");
-              } else {
-                setShowGenLog(true);
-              }
-            }}
+            onClick={()=>{ setModal("quickLog"); }}
             style={{flex:2,background:C.gold,border:"none",borderRadius:10,padding:"10px 0",fontSize:13,fontWeight:700,color:"#0a0d13",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:2}}
           >
             <span style={{fontSize:20}}>＋</span>Log Activity
