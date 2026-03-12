@@ -1056,6 +1056,186 @@ function ContactImportModal({data, upd, closeModal}) {
 // Place it just before the CampaignForm function definition
 // ─────────────────────────────────────────────────────────────────────────────
 
+// ── AddToSalesOSForm: parse email signature with Claude, create contact ────────
+const AddToSalesOSForm = ({item, dec, setDecision, data, upd}) => {
+  const [parsing, setParsing] = React.useState(false);
+  const [parsed, setParsed] = React.useState(false);
+  const [form, setForm] = React.useState({
+    name: item._type === "email_sent"
+      ? (item.to&&item.to[0]?item.to[0].name:"")
+      : (item.from?item.from.name:""),
+    email: item._type === "email_sent"
+      ? (item.to&&item.to[0]?item.to[0].email:"")
+      : (item.from?item.from.email:""),
+    title: "",
+    phone: "",
+    company: "",
+    tier: "Long Game",
+    existingAccId: ""
+  });
+  const upF = k => e => setForm(p=>({...p,[k]:e.target.value}));
+
+  // Auto-parse signature on mount
+  React.useEffect(function() {
+    if(item.preview && item.preview.length > 20) {
+      parseSignature(item.preview);
+    }
+  }, []);
+
+  async function parseSignature(text) {
+    setParsing(true);
+    try {
+      const res = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {"Content-Type":"application/json"},
+        body: JSON.stringify({
+          model: "claude-sonnet-4-20250514",
+          max_tokens: 300,
+          messages: [{role:"user", content:
+            `Extract contact info from this email text. Return ONLY a JSON object with keys: name, title, phone, company. Use empty string "" if not found. Do not include email. Text:\n\n${text}`
+          }]
+        })
+      });
+      const json = await res.json();
+      const txt = json.content&&json.content[0]&&json.content[0].text||"{}";
+      const clean = txt.replace(/```json|```/g,"").trim();
+      const info = JSON.parse(clean);
+      setForm(p => ({
+        ...p,
+        name: info.name || p.name,
+        title: info.title || p.title,
+        phone: info.phone || p.phone,
+        company: info.company || p.company
+      }));
+      setParsed(true);
+    } catch(e) {
+      setParsed(true); // still show form even if parse failed
+    }
+    setParsing(false);
+  }
+
+  function save() {
+    const contactName = form.name.trim();
+    if(!contactName) { alert("Contact name is required"); return; }
+
+    upd(function(d) {
+      let acc;
+      if(form.existingAccId) {
+        acc = d.accounts.find(a=>a.id===form.existingAccId);
+      } else if(form.company.trim()) {
+        acc = d.accounts.find(a=>a.name.toLowerCase()===form.company.trim().toLowerCase());
+        if(!acc) {
+          acc = {
+            id: "acc_ol_"+Date.now()+"_"+Math.random().toString(36).slice(2,6),
+            name: form.company.trim(),
+            tier: form.tier==="Priority"?1:form.tier==="Developing"?2:3,
+            contacts:[], jobs:[], notes:"", lastContact:null, market:[]
+          };
+          d.accounts.push(acc);
+        }
+      } else {
+        alert("Please enter a company name or select an existing account");
+        return d;
+      }
+
+      const newCon = {
+        id: "con_ol_"+Date.now()+"_"+Math.random().toString(36).slice(2,6),
+        name: contactName,
+        title: form.title||"",
+        email: form.email||"",
+        phone: form.phone||"",
+        notes: "Added via Outlook Sync",
+        activities: [],
+        campaign: null
+      };
+      acc.contacts.push(newCon);
+
+      return d;
+    });
+
+    // After upd, find the new contact and assign it
+    setTimeout(function() {
+      const newAcc = form.existingAccId
+        ? data.accounts.find(a=>a.id===form.existingAccId)
+        : data.accounts.find(a=>a.name.toLowerCase()===(form.company||"").toLowerCase());
+      const newCon = newAcc && newAcc.contacts.find(c=>c.name===form.name.trim()&&c.email===form.email);
+      if(newCon && newAcc) {
+        setDecision(item.id, {
+          contactId: newCon.id,
+          accId: newAcc.id,
+          _manualOverride: true,
+          _addingNew: false
+        });
+      }
+    }, 100);
+  }
+
+  const inputStyle = {
+    width:"100%", padding:"6px 8px", borderRadius:6,
+    border:"1px solid #2a2f35", background:"#0d1117",
+    color:"#f1f0f4", fontSize:12, boxSizing:"border-box", fontFamily:"inherit"
+  };
+
+  return (
+    <div style={{marginTop:8,background:"#0d1117",border:"1px solid #22c55e40",borderRadius:8,padding:"12px",width:"100%"}}>
+      <div style={{fontSize:11,fontWeight:700,color:"#22c55e",marginBottom:8}}>
+        {parsing ? "⏳ Parsing signature..." : parsed ? "✓ Pre-filled from email — review and save" : "New Contact"}
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:6}}>
+        <div>
+          <div style={{fontSize:11,color:"#6b7280",marginBottom:2}}>Name *</div>
+          <input style={inputStyle} value={form.name} onChange={upF("name")} placeholder="Full name"/>
+        </div>
+        <div>
+          <div style={{fontSize:11,color:"#6b7280",marginBottom:2}}>Email</div>
+          <input style={inputStyle} value={form.email} onChange={upF("email")} placeholder="email@company.com"/>
+        </div>
+        <div>
+          <div style={{fontSize:11,color:"#6b7280",marginBottom:2}}>Title</div>
+          <input style={inputStyle} value={form.title} onChange={upF("title")} placeholder="Project Manager"/>
+        </div>
+        <div>
+          <div style={{fontSize:11,color:"#6b7280",marginBottom:2}}>Phone</div>
+          <input style={inputStyle} value={form.phone} onChange={upF("phone")} placeholder="(602) 555-0000"/>
+        </div>
+      </div>
+      <div style={{marginBottom:6}}>
+        <div style={{fontSize:11,color:"#6b7280",marginBottom:2}}>Add to existing account</div>
+        <select style={{...inputStyle}} value={form.existingAccId} onChange={upF("existingAccId")}>
+          <option value="">-- Create new account from company name --</option>
+          {data.accounts.sort((a,b)=>a.name.localeCompare(b.name)).map(a=>(
+            <option key={a.id} value={a.id}>{a.name}</option>
+          ))}
+        </select>
+      </div>
+      {!form.existingAccId && (
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:6}}>
+          <div>
+            <div style={{fontSize:11,color:"#6b7280",marginBottom:2}}>Company name *</div>
+            <input style={inputStyle} value={form.company} onChange={upF("company")} placeholder="Company name"/>
+          </div>
+          <div>
+            <div style={{fontSize:11,color:"#6b7280",marginBottom:2}}>Tier</div>
+            <select style={inputStyle} value={form.tier} onChange={upF("tier")}>
+              <option value="Priority">Priority</option>
+              <option value="Developing">Developing</option>
+              <option value="Long Game">Long Game</option>
+            </select>
+          </div>
+        </div>
+      )}
+      <div style={{display:"flex",gap:6}}>
+        <button onClick={save} style={{flex:2,background:"#22c55e",border:"none",borderRadius:6,padding:"7px",fontSize:12,fontWeight:700,color:"#0a0d13",cursor:"pointer"}}>
+          Save Contact & Log
+        </button>
+        <button onClick={function(){setDecision(item.id,{_addingNew:false});}} style={{flex:1,background:"transparent",border:"1px solid #2a2f35",borderRadius:6,padding:"7px",fontSize:12,color:"#9ca3af",cursor:"pointer"}}>
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+};
+
 function OutlookSyncModal({ data, upd, closeModal, demoMode }) {
   if(demoMode) return (
     <div style={{textAlign:"center",padding:"40px 20px"}}>
@@ -1380,6 +1560,16 @@ function OutlookSyncModal({ data, upd, closeModal, demoMode }) {
                       return <option key={x.con.id} value={x.con.id}>{x.con.name} — {x.acc.name}</option>;
                     })}
                   </select>
+                  {/* Add to SalesOS button for unmatched */}
+                  {!item._matchedCon && !dec._manualOverride && (
+                    <button
+                      onClick={function() { setDecision(item.id, { _addingNew: true }); }}
+                      style={{ padding: "4px 10px", fontSize: 11, borderRadius: 6, cursor: "pointer", border: "1px solid #22c55e80", background: "#22c55e22", color: "#16a34a", fontWeight: 600, whiteSpace: "nowrap" }}>
+                      + Add to SalesOS
+                    </button>
+                  )}
+                  {/* New contact form */}
+                  {dec._addingNew && <AddToSalesOSForm item={item} dec={dec} setDecision={setDecision} data={data} upd={upd} />}
                   {/* Activity type picker */}
                   <select
                     value={dec.type || "Email"}
@@ -2057,6 +2247,7 @@ function App({demoMode, onSignOut}) {
   const [weeklyReport,  setWeeklyReport]  = useState(null);
   const [reportLoading, setReportLoading] = useState(false);
   const [reportFormat,  setReportFormat]  = useState("copy");
+  const [reportWeekOffset, setReportWeekOffset] = useState(0);
   const [reportCopied,  setReportCopied]  = useState(false);
   const [showGenLog,    setShowGenLog]    = useState(false);
   const [genLogForm,    setGenLogForm]    = useState({type:"LinkedIn",otherType:"",notes:"",date:new Date().toISOString().slice(0,10),count:1,contactId:null,countAsCampaign:false});
@@ -2332,7 +2523,7 @@ function App({demoMode, onSignOut}) {
   const generateWeeklyReport = async () => {
     setReportLoading(true); setWeeklyReport(null);
     try {
-      const {mon,sun}=getWeekBounds();
+      const {mon,sun}=getWeekBounds(reportWeekOffset);
       const inWeek=s=>{if(!s)return false;const d=new Date(s);return d>=mon&&d<=sun;};
       const weekActs=[];
       data.accounts.forEach(acc=>acc.contacts.forEach(con=>con.activities.forEach(act=>{
@@ -2380,7 +2571,7 @@ function App({demoMode, onSignOut}) {
       })(),
         body:JSON.stringify({
           model:"claude-sonnet-4-20250514",max_tokens:2000,
-          system:"You are writing a weekly BD report for West at Fairco Landscape Development, a landscape construction company in AZ, CA, and NV since 1978. Write a professional, direct report a BD manager would send to ownership on Friday. Use real names and numbers. Format with === on its own line before each section header. Sections: WEEK IN REVIEW, ACCOUNT ACTIVITY, PROSPECTING & OUTREACH, PIPELINE WATCH, NEEDS ATTENTION, PRIORITIES FOR NEXT WEEK. Be specific and actionable. Short paragraphs over bullet lists.",
+          system:"You are writing a punchy weekly BD summary for West at Fairco Landscape Development (AZ/CA/NV). Keep it tight — max 250 words total. Use real names and numbers from the data. Format with === on its own line before each section header. 5 sections only: WEEK IN REVIEW (2-3 sentences on momentum), TOP ACCOUNTS (2-3 most active, one line each), PIPELINE (proposals/decisions due, one line each), NEEDS ATTENTION (overdue or cold accounts, max 3), NEXT WEEK (2-3 priorities). No fluff. Write like a BD manager texting their boss.",
           messages:[{role:"user",content:"Generate weekly BD report: "+JSON.stringify(signals)}]
         })
       });
@@ -3576,15 +3767,19 @@ function App({demoMode, onSignOut}) {
           <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:10,marginBottom:16}}>
             <div>
               <div style={{fontFamily:C.serif,fontSize:17,color:C.textHi}}>Weekly BD Report</div>
-              <div style={{fontSize:12,color:C.textDim,marginTop:2}}>{(()=>{const {mon,sun}=getWeekBounds();return mon.toLocaleDateString("en-US",{month:"short",day:"numeric"})+" - "+sun.toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"});})()}</div>
+              <div style={{fontSize:12,color:C.textDim,marginTop:2}}>{(()=>{const {mon,sun}=getWeekBounds(reportWeekOffset);return mon.toLocaleDateString("en-US",{month:"short",day:"numeric"})+" – "+sun.toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"});})()}</div>
             </div>
             <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
               <div style={{display:"flex",border:"1px solid "+C.border2,borderRadius:8,overflow:"hidden",fontSize:12}}>
-                <button onClick={()=>setReportFormat("copy")} style={{padding:"5px 12px",background:reportFormat==="copy"?C.blue:"transparent",color:reportFormat==="copy"?"#fff":C.textDim,border:"none",cursor:"pointer",fontFamily:C.sans}}>Copy and Email</button>
-                <button onClick={()=>setReportFormat("pdf")} style={{padding:"5px 12px",background:reportFormat==="pdf"?C.blue:"transparent",color:reportFormat==="pdf"?"#fff":C.textDim,border:"none",cursor:"pointer",fontFamily:C.sans}}>Print / PDF</button>
+                <button onClick={()=>{setReportWeekOffset(-1);setWeeklyReport(null);}} style={{padding:"5px 12px",background:reportWeekOffset===-1?C.blue:"transparent",color:reportWeekOffset===-1?"#fff":C.textDim,border:"none",cursor:"pointer",fontFamily:C.sans}}>Prev Week</button>
+                <button onClick={()=>{setReportWeekOffset(0);setWeeklyReport(null);}} style={{padding:"5px 12px",background:reportWeekOffset===0?C.blue:"transparent",color:reportWeekOffset===0?"#fff":C.textDim,border:"none",cursor:"pointer",fontFamily:C.sans}}>This Week</button>
               </div>
-              <button onClick={generateWeeklyReport} disabled={reportLoading} style={{...btn(reportLoading?C.border:C.gold,reportLoading?C.textDim:"#0a0d13"),minWidth:140,justifyContent:"center",opacity:reportLoading?0.6:1}}>
-                {reportLoading?"Generating...":weeklyReport?"Regenerate Report":"Generate Report"}
+              <div style={{display:"flex",border:"1px solid "+C.border2,borderRadius:8,overflow:"hidden",fontSize:12}}>
+                <button onClick={()=>setReportFormat("copy")} style={{padding:"5px 12px",background:reportFormat==="copy"?C.blue:"transparent",color:reportFormat==="copy"?"#fff":C.textDim,border:"none",cursor:"pointer",fontFamily:C.sans}}>Copy</button>
+                <button onClick={()=>setReportFormat("pdf")} style={{padding:"5px 12px",background:reportFormat==="pdf"?C.blue:"transparent",color:reportFormat==="pdf"?"#fff":C.textDim,border:"none",cursor:"pointer",fontFamily:C.sans}}>PDF</button>
+              </div>
+              <button onClick={generateWeeklyReport} disabled={reportLoading} style={{...btn(reportLoading?C.border:C.gold,reportLoading?C.textDim:"#0a0d13"),minWidth:120,justifyContent:"center",opacity:reportLoading?0.6:1}}>
+                {reportLoading?"Generating...":weeklyReport?"Regenerate":"Generate"}
               </button>
             </div>
           </div>
