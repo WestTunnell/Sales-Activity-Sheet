@@ -3272,19 +3272,22 @@ function App({demoMode, onSignOut}) {
     const daysInMonth = new Date(year,month+1,0).getDate();
     const monthNames = ["January","February","March","April","May","June","July","August","September","October","November","December"];
 
-    // Build event map keyed by day number
-    const eventsByDay = {};
-    function addEvent(day, event) {
-      if(!eventsByDay[day]) eventsByDay[day] = [];
-      eventsByDay[day].push(event);
-    }
+    // Build event map keyed by day number - useMemo so it's stable across renders
+    const eventsByDay = React.useMemo(function() {
+      const map = {};
+      function addEvent(day, event) {
+        if(!map[day]) map[day] = [];
+        map[day].push(event);
+      }
 
-    // 1. Job due dates (Active + Pending)
+    // 1. Job due dates (all active statuses)
+    const ACTIVE_JOB_STATUSES = ["Active Pursuit","Proposal Pending","Budget / Budgetary Only","No Bid"];
     data.accounts.forEach(function(acc) {
-      acc.jobs.filter(function(j){return j.dueDate&&["Active Pursuit","Proposal Pending"].includes(j.status);}).forEach(function(j){
-        const d = new Date(j.dueDate);
+      acc.jobs.filter(function(j){return j.dueDate&&ACTIVE_JOB_STATUSES.includes(j.status);}).forEach(function(j){
+        const parts = j.dueDate.split("-");
+        const d = parts.length===3 ? new Date(parseInt(parts[0]),parseInt(parts[1])-1,parseInt(parts[2])) : new Date(j.dueDate);
         if(d.getFullYear()===year && d.getMonth()===month){
-          addEvent(d.getDate(), {type:"job", label:j.name, sub:acc.name, color:"#3b82f6", accId:acc.id, jobId:j.id});
+          addEvent(d.getDate(), {type:"job", label:j.name, sub:acc.name+" · "+j.status, color:"#3b82f6", accId:acc.id, jobId:j.id});
         }
       });
     });
@@ -3294,7 +3297,8 @@ function App({demoMode, onSignOut}) {
       acc.contacts.forEach(function(con) {
         (con.activities||[]).forEach(function(act) {
           if(!act.followUp) return;
-          const d = new Date(act.followUp);
+          const fp = act.followUp.split("-");
+          const d = fp.length===3 ? new Date(parseInt(fp[0]),parseInt(fp[1])-1,parseInt(fp[2])) : new Date(act.followUp);
           if(d.getFullYear()===year && d.getMonth()===month){
             addEvent(d.getDate(), {type:"followup", label:"Follow-up: "+con.name, sub:act.type+(act.notes?" · "+act.notes.slice(0,40):""), color:"#22c55e", accId:acc.id, conId:con.id});
           }
@@ -3319,11 +3323,35 @@ function App({demoMode, onSignOut}) {
     // 4. General outreach log entries
     (data.generalActivities||[]).forEach(function(a) {
       if(!a.date) return;
-      const d = new Date(a.date);
+      const dp = a.date.split("-");
+      const d = dp.length===3 ? new Date(parseInt(dp[0]),parseInt(dp[1])-1,parseInt(dp[2])) : new Date(a.date);
       if(d.getFullYear()===year && d.getMonth()===month){
         addEvent(d.getDate(), {type:"outreach", label:a.type, sub:a.notes, color:"#7c3aed"});
       }
     });
+
+    // 5. Logged contact activities (emails, calls, lunches, meetings etc)
+    data.accounts.forEach(function(acc) {
+      acc.contacts.forEach(function(con) {
+        (con.activities||[]).forEach(function(act) {
+          if(!act.date) return;
+          const ap = act.date.split("-");
+          const d = ap.length===3 ? new Date(parseInt(ap[0]),parseInt(ap[1])-1,parseInt(ap[2])) : new Date(act.date);
+          if(d.getFullYear()===year && d.getMonth()===month){
+            addEvent(d.getDate(), {
+              type:"activity",
+              label: act.type+": "+con.name,
+              sub: (acc.name+(act.notes?" · "+act.notes.slice(0,50):"")),
+              color:"#9ca3af",
+              accId:acc.id,
+              conId:con.id
+            });
+          }
+        });
+      });
+    });
+      return map;
+    }, [data, year, month]);
 
     const today = new Date();
     const isToday = function(d) { return today.getFullYear()===year && today.getMonth()===month && today.getDate()===d; };
@@ -3346,7 +3374,7 @@ function App({demoMode, onSignOut}) {
             {events.length===0 && <div style={{color:"#6b7280",fontSize:13}}>Nothing scheduled.</div>}
             <div style={{display:"flex",flexDirection:"column",gap:10}}>
               {events.map(function(ev, i) {
-                var typeLabels = {job:"Job Due",followup:"Follow-up",campaign:"Campaign Touch",outreach:"Outreach"};
+                var typeLabels = {job:"Job Due",followup:"Follow-up",campaign:"Campaign Touch",outreach:"Outreach",activity:"Activity"};
                 return (
                   <div key={i} onClick={function(){
                     if(ev.accId&&ev.conId){ setSA(ev.accId); setSC(ev.conId); setAccTab&&setAccTab("contacts"); setView("contact"); setSelectedDay(null); }
