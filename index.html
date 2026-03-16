@@ -58,7 +58,7 @@ const SB_ROW_ID = "salesos_main";
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const DEFAULT_MARKETS = ["General Contractor","Construction Manager","Owner / Developer","Home Builder","Subcontractor","Design-Build","Healthcare","Industrial","Government / Public","Mixed-Use / Multifamily"];
 const JOB_STATUSES   = ["Active Pursuit","Proposal Pending","Won","Lost","Budget / Budgetary Only"];
-const STATUS_COLORS  = {"Active Pursuit":"#7EB8F7","Proposal Pending":"#E8C547","Won":"#22c55e","Lost":"#ef4444","Budget / Budgetary Only":"#6b7280"};
+const STATUS_COLORS  = {"Active Pursuit":"#7EB8F7","Proposal Pending":"#E8C547","Won":"#22c55e","Lost":"#ef4444","No Bid":"#f97316","Budget / Budgetary Only":"#6b7280"};
 const ACTIVITY_TYPES = ["Email","Proposal","Phone Call","Coffee","Lunch","Happy Hour","Market Event","Entertainment","Site Visit","LinkedIn Connection Request","LinkedIn Message","LinkedIn Engagement","Other"];
 const TIERS          = [1,2,3];
 const TIER_LABELS    = {1:"Priority",2:"Developing",3:"Long Game"};
@@ -413,10 +413,12 @@ function nameSimilarity(a, b) {
 function matchStatus(raw) {
   if (!raw) return "Active Pursuit";
   const s = raw.toLowerCase().trim();
-  if (/^won$|awarded|award|selected/.test(s))           return "Won";
-  if (/^lost$|no.?award|not.?select|no.?bid|declined/.test(s)) return "Lost";
-    if (/budget|rom|feasib|prelim|study/.test(s))         return "Budget / Budgetary Only";
-  if (/submit|sent|pending|under.?review/.test(s))      return "Proposal Pending";
+  if (/^won$|^win$|awarded|award|selected/.test(s))                    return "Won";
+  if (/^lost$|^loss$|no.?award|not.?select|declined/.test(s))          return "Lost";
+  if (/^no.?bid$|no bid/.test(s))                                       return "No Bid";
+  if (/budget|rom|feasib|prelim|study/.test(s))                         return "Budget / Budgetary Only";
+  if (/^pending$|submit|sent|under.?review/.test(s))                    return "Proposal Pending";
+  if (/^bidding$|^bid$/.test(s))                                        return "Active Pursuit";
   return JOB_STATUSES.find(j => j.toLowerCase().includes(s) || s.includes(j.toLowerCase())) || "Active Pursuit";
 }
 
