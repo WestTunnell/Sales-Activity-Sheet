@@ -3205,6 +3205,20 @@ function App({demoMode, onSignOut}) {
           <textarea style={{...inp,resize:"vertical",height:180}} value={form.marketList!=null?form.marketList:allMarkets.join("\n")} onChange={ff("marketList")}/>
         </Field>
         <button style={{...btn(null,C.textLo,C.border2),width:"100%",justifyContent:"center"}} onClick={saveMarkets}>Save Market List</button>
+        <div style={divL}/>
+        <div style={{fontFamily:C.serif,fontSize:16,color:"#ef4444",marginBottom:6}}>Danger Zone</div>
+        <div style={{fontSize:12,color:C.textDim,marginBottom:10}}>Permanently delete all accounts, contacts, jobs, and activities. This cannot be undone. Your settings and password will be kept.</div>
+        <button
+          style={{...btn(null,"#ef4444","#ef444420"),width:"100%",justifyContent:"center"}}
+          onClick={()=>{
+            if(window.confirm("Are you sure? This will permanently delete ALL accounts, contacts, jobs, and activities. This cannot be undone.")) {
+              if(window.confirm("Last chance — delete everything?")) {
+                upd(d=>{d.accounts=[];d.generalActivities=[];return d;});
+                closeModal();
+              }
+            }
+          }}
+        >🗑 Clear All Data</button>
       </Modal>
     );
     return null;
