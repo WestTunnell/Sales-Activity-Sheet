@@ -766,7 +766,9 @@ function ContactImportModal({data, upd, closeModal}) {
         if (r.action === "add") {
           var acc;
           if (r.targetAccId === "new") {
-            acc = {id:uid(), name:extracted.company||"New Account", tier:2, markets:[], pros:[], contacts:[], jobs:[], notes:""};
+            var newName = (r.newAccName!==undefined ? r.newAccName : extracted.company)||"New Account";
+            var newTier = r.newAccTier||2;
+            acc = {id:uid(), name:newName, tier:newTier, markets:[], pros:[], cons:[], contacts:[], jobs:[], notes:"", industry:""};
             d.accounts.push(acc);
           } else {
             acc = d.accounts.find(function(a){ return a.id === r.targetAccId; });
@@ -890,14 +892,33 @@ function ContactImportModal({data, upd, closeModal}) {
                   )}
                   {r.action==="add" && (
                     <div style={{fontSize:12, marginTop:6}}>
-                      <span style={{color:"#6b7280"}}>Add to account: </span>
+                      <span style={{color:"#9ca3af",fontSize:11,fontWeight:600}}>Add to account: </span>
                       <select value={r.targetAccId||"new"} onChange={function(e){updateResolved(i,{targetAccId:e.target.value});}}
-                        style={{padding:"4px 8px", borderRadius:6, border:"1px solid #e5e7eb", fontSize:12, marginLeft:4}}>
+                        style={{padding:"6px 10px", borderRadius:6, border:"1px solid #374151", fontSize:12, marginLeft:4, background:"#1e2530", color:"#f1f0f4"}}>
                         <option value="new">+ Create new account{extracted.company?" ("+extracted.company+")":""}</option>
                         {data.accounts.sort(function(a,b){return a.name.localeCompare(b.name);}).map(function(a){
                           return <option key={a.id} value={a.id}>{a.name}</option>;
                         })}
                       </select>
+                      {(r.targetAccId==="new"||!r.targetAccId) && (
+                        <div style={{marginTop:8,display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+                          <input
+                            value={r.newAccName!==undefined ? r.newAccName : (extracted.company||"")}
+                            onChange={function(e){updateResolved(i,{newAccName:e.target.value});}}
+                            placeholder="Account / company name"
+                            style={{flex:1,padding:"5px 8px",borderRadius:6,border:"1px solid #374151",background:"#1e2530",color:"#f1f0f4",fontSize:12,minWidth:140}}
+                          />
+                          <select
+                            value={r.newAccTier||2}
+                            onChange={function(e){updateResolved(i,{newAccTier:parseInt(e.target.value)});}}
+                            style={{padding:"5px 8px",borderRadius:6,border:"1px solid #374151",background:"#1e2530",color:"#f1f0f4",fontSize:12}}
+                          >
+                            <option value={1}>T1 Priority</option>
+                            <option value={2}>T2 Developing</option>
+                            <option value={3}>T3 Long Game</option>
+                          </select>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
@@ -1131,7 +1152,7 @@ const AddToSalesOSForm = ({item, dec, setDecision, data, upd}) => {
             id: "acc_ol_"+Date.now()+"_"+Math.random().toString(36).slice(2,6),
             name: form.company.trim(),
             tier: form.tier==="Priority"?1:form.tier==="Developing"?2:3,
-            contacts:[], jobs:[], notes:"", lastContact:null, market:[]
+            contacts:[], jobs:[], pros:[], cons:[], notes:"", industry:"", markets:[], lastContact:null
           };
           d.accounts.push(acc);
         }
@@ -2121,12 +2142,15 @@ Return ONLY the JSON array, no other text.`;
           acc = {
             id: "acc_li_"+Date.now()+"_"+Math.random().toString(36).slice(2,6),
             name: companyName,
-            tier: c.suggestedTier||"Long Game",
+            tier: c.suggestedTier==="Priority"?1:c.suggestedTier==="Developing"?2:3,
             contacts:[],
             jobs:[],
+            pros:[],
+            cons:[],
             notes:"",
-            lastContact:null,
-            market:[]
+            industry:"",
+            markets:[],
+            lastContact:null
           };
           d.accounts.push(acc);
         }
@@ -4351,6 +4375,12 @@ function App({demoMode, onSignOut}) {
 
   const AccountView = () => {
     const acc=gAcc(); if(!acc) return null;
+    // Ensure required arrays exist regardless of how account was created
+    if(!acc.pros) acc.pros = [];
+    if(!acc.cons) acc.cons = [];
+    if(!acc.jobs) acc.jobs = [];
+    if(!acc.contacts) acc.contacts = [];
+    if(!acc.markets) acc.markets = [];
     const ps=pipeSummary(acc);
     return (
       <div>
