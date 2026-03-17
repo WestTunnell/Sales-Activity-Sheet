@@ -1,7 +1,4 @@
 // netlify/functions/outlook-sync.js
-// Fetches recent emails + calendar events from Microsoft Graph
-// Called from the SalesOS frontend
-
 const { createClient } = require("@supabase/supabase-js");
 
 async function refreshTokenIfNeeded(tokens, sb) {
@@ -11,7 +8,6 @@ async function refreshTokenIfNeeded(tokens, sb) {
 
   const expiresAt = new Date(tokens.expires_at);
   const now = new Date();
-  // Refresh if expiring within 5 minutes
   if ((expiresAt - now) > 5 * 60 * 1000) return tokens;
 
   const tokenRes = await fetch(
@@ -64,7 +60,31 @@ exports.handler = async (event, context) => {
   try {
     const sb = createClient(SUPABASE_URL, SUPABASE_KEY);
 
-    // Load stored tokens
+    // ── POST: save processed IDs ─────────────────────────────────────────────
+    if (event.httpMethod === "POST") {
+      const body = JSON.parse(event.body || "{}");
+      if (body.saveProcessed && Array.isArray(body.processedIds)) {
+        await sb.from("app_data").upsert({
+          id: "outlook_processed_ids",
+          payload: JSON.stringify(body.processedIds),
+          updated_at: new Date().toISOString()
+        });
+        return { statusCode: 200, headers, body: JSON.stringify({ ok: true }) };
+      }
+    }
+
+    // ── GET: load processed IDs only ─────────────────────────────────────────
+    if (event.queryStringParameters && event.queryStringParameters.getProcessed) {
+      const { data: pidRow } = await sb
+        .from("app_data")
+        .select("payload")
+        .eq("id", "outlook_processed_ids")
+        .single();
+      const processedIds = pidRow ? JSON.parse(pidRow.payload) : [];
+      return { statusCode: 200, headers, body: JSON.stringify({ processedIds }) };
+    }
+
+    // ── GET: full sync ────────────────────────────────────────────────────────
     const { data: tokenRow, error: tokenErr } = await sb
       .from("app_data")
       .select("payload")
@@ -88,12 +108,12 @@ exports.handler = async (event, context) => {
     since.setDate(since.getDate() - 90);
     const sinceISO = since.toISOString();
 
-    // Fetch sent emails (from me) in last 90 days
+    // Fetch sent emails
     const emailRes = await fetch(
       `https://graph.microsoft.com/v1.0/me/mailFolders/SentItems/messages`
       + `?$filter=sentDateTime ge ${sinceISO}`
       + `&$select=id,subject,sentDateTime,toRecipients,bodyPreview`
-      + `&$top=50&$orderby=sentDateTime desc`,
+      + `&$top=100&$orderby=sentDateTime desc`,
       { headers: graphHeaders }
     );
     const emailData = await emailRes.json();
@@ -109,12 +129,12 @@ exports.handler = async (event, context) => {
       source: "email_sent"
     }));
 
-    // Fetch received emails in last 90 days
+    // Fetch received emails
     const inboxRes = await fetch(
       `https://graph.microsoft.com/v1.0/me/mailFolders/Inbox/messages`
       + `?$filter=receivedDateTime ge ${sinceISO}`
       + `&$select=id,subject,receivedDateTime,from,bodyPreview`
-      + `&$top=50&$orderby=receivedDateTime desc`,
+      + `&$top=100&$orderby=receivedDateTime desc`,
       { headers: graphHeaders }
     );
     const inboxData = await inboxRes.json();
@@ -130,13 +150,13 @@ exports.handler = async (event, context) => {
       source: "email_received"
     }));
 
-    // Fetch calendar events in last 90 days
+    // Fetch calendar events
     const calRes = await fetch(
       `https://graph.microsoft.com/v1.0/me/calendarView`
       + `?startDateTime=${sinceISO}`
       + `&endDateTime=${new Date().toISOString()}`
       + `&$select=id,subject,start,end,attendees,bodyPreview,location`
-      + `&$top=50&$orderby=start/dateTime desc`,
+      + `&$top=100&$orderby=start/dateTime desc`,
       { headers: graphHeaders }
     );
     const calData = await calRes.json();
