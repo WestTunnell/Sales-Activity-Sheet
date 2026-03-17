@@ -1281,6 +1281,42 @@ function OutlookSyncModal({ data, upd, closeModal, demoMode }) {
   const [items,      setItems]      = React.useState([]);      // all fetched items
   const [decisions,  setDecisions]  = React.useState({});     // id -> { action, contactId, accId, jobId, type }
   const [processedIds, setProcessedIds] = React.useState(new Set()); // IDs already dealt with
+  const [openDropdown, setOpenDropdown] = React.useState(null); // tracks which dropdown is open
+
+  // Custom dark dropdown component
+  const DarkSelect = function({value, onChange, options, placeholder, style}) {
+    const id = React.useRef(Math.random().toString(36).slice(2));
+    const isOpen = openDropdown === id.current;
+    const selectedLabel = options.find(function(o){return o.value===value;});
+    return (
+      <div style={{position:"relative", ...style}} onBlur={function(e){if(!e.currentTarget.contains(e.relatedTarget)) setOpenDropdown(null);}}>
+        <button
+          type="button"
+          onClick={function(e){e.stopPropagation(); setOpenDropdown(isOpen ? null : id.current);}}
+          style={{width:"100%",padding:"6px 10px",borderRadius:6,border:"1px solid #374151",background:"#1e2530",color:selectedLabel?"#f1f0f4":"#6b7280",fontSize:12,textAlign:"left",cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center",fontFamily:"inherit"}}
+        >
+          <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:1}}>{selectedLabel ? selectedLabel.label : (placeholder||"Select...")}</span>
+          <span style={{marginLeft:6,opacity:0.6,flexShrink:0}}>{isOpen?"▲":"▼"}</span>
+        </button>
+        {isOpen && (
+          <div style={{position:"absolute",top:"100%",left:0,right:0,zIndex:999,background:"#1e2530",border:"1px solid #374151",borderRadius:6,boxShadow:"0 4px 16px rgba(0,0,0,0.5)",maxHeight:200,overflowY:"auto",marginTop:2}}>
+            {placeholder && <div onClick={function(){onChange("");setOpenDropdown(null);}} style={{padding:"8px 12px",fontSize:12,color:"#6b7280",cursor:"pointer",borderBottom:"1px solid #2a2f35"}}>{placeholder}</div>}
+            {options.map(function(o){
+              return (
+                <div key={o.value} onClick={function(){onChange(o.value);setOpenDropdown(null);}}
+                  style={{padding:"8px 12px",fontSize:12,color:o.value===value?"#c8980a":"#f1f0f4",background:o.value===value?"#c8980a22":"transparent",cursor:"pointer",borderBottom:"1px solid #2a2f3530"}}
+                  onMouseEnter={function(e){e.currentTarget.style.background="#374151";}}
+                  onMouseLeave={function(e){e.currentTarget.style.background=o.value===value?"#c8980a22":"transparent";}}
+                >
+                  {o.label}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    );
+  };
   const [saved,      setSaved]      = React.useState(false);
   const [tab,        setTab]        = React.useState("all");   // all | email_sent | email_received | calendar
 
@@ -1506,6 +1542,8 @@ function OutlookSyncModal({ data, upd, closeModal, demoMode }) {
   const filtered = tab === "all" ? items : items.filter(function(i) { return i._type === tab; });
   const matched  = items.filter(function(i) { return !!i._matchedCon; }).length;
   const toLog    = Object.values(decisions).filter(function(d) { return d.action === "log" && d.contactId; }).length;
+  const toSkip   = Object.values(decisions).filter(function(d) { return d.action === "skip" || d.action === "genLog"; }).length;
+  const hasDecisions = toLog > 0 || toSkip > 0;
 
   if (saved) {
     return (
@@ -1710,39 +1748,42 @@ function OutlookSyncModal({ data, upd, closeModal, demoMode }) {
                     </span>
                   )}
                   {/* Contact picker */}
-                  <select
+                  <DarkSelect
                     value={dec.contactId || ""}
-                    onChange={function(e) {
-                      var found = data.accounts.flatMap(function(a) { return a.contacts.map(function(c) { return { con: c, acc: a }; }); }).find(function(x) { return x.con.id === e.target.value; });
-                      setDecision(item.id, { contactId: e.target.value, accId: found ? found.acc.id : null, _manualOverride: true });
+                    onChange={function(v) {
+                      var found = data.accounts.flatMap(function(a) { return a.contacts.map(function(c) { return { con: c, acc: a }; }); }).find(function(x) { return x.con.id === v; });
+                      setDecision(item.id, { contactId: v, accId: found ? found.acc.id : null, _manualOverride: true });
                     }}
-                    style={{ padding: "6px 10px", borderRadius: 6, border: "1px solid #374151", fontSize: 12, background: "#1e2530", fontFamily: "inherit", color: "#f1f0f4" }}>
-                    <option value="">{item._matchedCon && !dec._manualOverride ? "Change contact..." : "-- Assign to contact --"}</option>
-                    {data.accounts.flatMap(function(acc) {
-                      return acc.contacts.map(function(con) { return { con: con, acc: acc }; });
-                    }).sort(function(a, b) { return a.con.name.localeCompare(b.con.name); }).map(function(x) {
-                      return <option key={x.con.id} value={x.con.id}>{x.con.name} — {x.acc.name}</option>;
-                    })}
-                  </select>
+                    placeholder={item._matchedCon && !dec._manualOverride ? "Change contact..." : "-- Assign to contact --"}
+                    style={{minWidth:180, flex:1}}
+                    options={data.accounts.flatMap(function(acc) {
+                      return acc.contacts.map(function(con) { return { value: con.id, label: con.name + " — " + acc.name }; });
+                    }).sort(function(a, b) { return a.label.localeCompare(b.label); })}
+                  />
                   {/* Add to SalesOS button for unmatched */}
-                  {!item._matchedCon && !dec._manualOverride && (
+                  {!item._matchedCon && !dec._manualOverride && !dec._addingNew && (
                     <button
                       onClick={function() { setDecision(item.id, { _addingNew: true }); }}
                       style={{ padding: "4px 10px", fontSize: 11, borderRadius: 6, cursor: "pointer", border: "1px solid #22c55e80", background: "#22c55e22", color: "#16a34a", fontWeight: 600, whiteSpace: "nowrap" }}>
                       + Add to SalesOS
                     </button>
                   )}
+                  {item._matchedCon && !dec._addingNew && (
+                    <button
+                      onClick={function() { setDecision(item.id, { _addingNew: true, _manualOverride: true }); }}
+                      style={{ padding: "4px 10px", fontSize: 11, borderRadius: 6, cursor: "pointer", border: "1px solid #60a5fa60", background: "#60a5fa15", color: "#60a5fa", fontWeight: 600, whiteSpace: "nowrap" }}>
+                      + Add New Contact
+                    </button>
+                  )}
                   {/* New contact form */}
                   {dec._addingNew && <AddToSalesOSForm item={item} dec={dec} setDecision={setDecision} data={data} upd={upd} />}
                   {/* Activity type picker */}
-                  <select
+                  <DarkSelect
                     value={dec.type || "Email"}
-                    onChange={function(e) { setDecision(item.id, { type: e.target.value }); }}
-                    style={{ padding: "6px 10px", borderRadius: 6, border: "1px solid #374151", fontSize: 12, background: "#1e2530", fontFamily: "inherit", color: "#f1f0f4" }}>
-                    {["Email","Phone Call","Coffee","Lunch","Happy Hour","Site Visit","Market Event","Proposal","LinkedIn Message","Other"].map(function(t) {
-                      return <option key={t} value={t}>{t}</option>;
-                    })}
-                  </select>
+                    onChange={function(v) { setDecision(item.id, { type: v }); }}
+                    style={{minWidth:120}}
+                    options={["Email","Phone Call","Coffee","Lunch","Happy Hour","Site Visit","Market Event","Proposal","LinkedIn Message","Other"].map(function(t){ return {value:t, label:t}; })}
+                  />
                   {/* Optional job link */}
                   {dec.accId && (function() {
                     var acc = data.accounts.find(function(a) { return a.id === dec.accId; });
@@ -1770,9 +1811,9 @@ function OutlookSyncModal({ data, upd, closeModal, demoMode }) {
         </button>
         <button
           onClick={save}
-          disabled={toLog === 0}
-          style={{ flex: 1, padding: "10px 18px", background: toLog > 0 ? "#c8980a" : "#e8e7e8", border: "none", borderRadius: 8, cursor: toLog > 0 ? "pointer" : "not-allowed", fontWeight: 700, fontSize: 14, color: toLog > 0 ? "#0a0d13" : "#9ca3af" }}>
-          {toLog > 0 ? "Log " + toLog + " Activities from Outlook" : "Select items to log"}
+          disabled={!hasDecisions}
+          style={{ flex: 1, padding: "10px 18px", background: hasDecisions ? "#c8980a" : "#2a2f35", border: "none", borderRadius: 8, cursor: hasDecisions ? "pointer" : "not-allowed", fontWeight: 700, fontSize: 14, color: hasDecisions ? "#0a0d13" : "#6b7280" }}>
+          {toLog > 0 && toSkip > 0 ? "Save — Log " + toLog + " & Skip " + toSkip : toLog > 0 ? "Log " + toLog + " Activities" : toSkip > 0 ? "Save " + toSkip + " Skipped" : "Make a decision to save"}
         </button>
       </div>
     </div>
