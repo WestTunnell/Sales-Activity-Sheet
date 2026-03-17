@@ -1271,16 +1271,19 @@ function OutlookSyncModal({ data, upd, closeModal, demoMode }) {
   async function checkConnection() {
     setStatus("loading");
     try {
-      // Load previously processed IDs from Supabase
-      const pidRes = await fetch("/.netlify/functions/outlook-sync?getProcessed=1");
-      if (pidRes.ok) {
-        try {
+      // Load processed IDs FIRST, then sync — pass directly to processItems to avoid React async state race
+      let loadedProcessedIds = new Set();
+      try {
+        const pidRes = await fetch("/.netlify/functions/outlook-sync?getProcessed=1");
+        if (pidRes.ok) {
           const pidData = await pidRes.json();
           if (pidData.processedIds && Array.isArray(pidData.processedIds)) {
-            setProcessedIds(new Set(pidData.processedIds));
+            loadedProcessedIds = new Set(pidData.processedIds);
+            setProcessedIds(loadedProcessedIds);
           }
-        } catch(e) {}
-      }
+        }
+      } catch(e) {}
+
       const res = await fetch(SYNC_URL);
       if (res.status === 401) {
         setConnected(false);
@@ -1294,7 +1297,7 @@ function OutlookSyncModal({ data, upd, closeModal, demoMode }) {
         return;
       }
       setConnected(true);
-      processItems(d);
+      processItems(d, loadedProcessedIds);
       setStatus("loaded");
     } catch (e) {
       setConnected(false);
@@ -1302,7 +1305,8 @@ function OutlookSyncModal({ data, upd, closeModal, demoMode }) {
     }
   }
 
-  function processItems(d) {
+  function processItems(d, knownProcessedIds) {
+    const activeProcessedIds = knownProcessedIds || processedIds;
     const rawAll = [];
     // Sent emails
     (d.emails || []).forEach(function(e) {
@@ -1317,7 +1321,7 @@ function OutlookSyncModal({ data, upd, closeModal, demoMode }) {
       rawAll.push({ ...e, _type: "calendar",         _label: "Calendar Event", _color: "#c8980a" });
     });
     // Filter out already-processed items
-    const fresh = rawAll.filter(function(item) { return !processedIds.has(item.id); });
+    const fresh = rawAll.filter(function(item) { return !activeProcessedIds.has(item.id); });
 
     // Also filter out items already logged as activities (by date+subject match)
     const reallyFresh = fresh.filter(function(item) {
@@ -1346,13 +1350,19 @@ function OutlookSyncModal({ data, upd, closeModal, demoMode }) {
         if (item.from && item.from.email) emails.push(item.from.email.toLowerCase());
       } else if (item._type === "calendar") {
         (item.attendees || []).forEach(function(a) { if (a.email) emails.push(a.email.toLowerCase()); });
+        // Also include organizer (for events others sent to you)
+        if (item.organizer && item.organizer.email) emails.push(item.organizer.email.toLowerCase());
       }
+
+      // Filter out your own email (west@fairco.ca) to avoid self-matching
+      const myEmail = (data.settings && data.settings.userEmail) ? data.settings.userEmail.toLowerCase() : "west@fairco.ca";
+      const externalEmails = emails.filter(function(e) { return e !== myEmail; });
 
       // Try to find a matching contact in SalesOS
       let matchedCon = null, matchedAcc = null;
       data.accounts.forEach(function(acc) {
         acc.contacts.forEach(function(con) {
-          if (con.email && emails.includes(con.email.toLowerCase())) {
+          if (con.email && externalEmails.includes(con.email.toLowerCase())) {
             matchedCon = con;
             matchedAcc = acc;
           }
@@ -1579,7 +1589,7 @@ function OutlookSyncModal({ data, upd, closeModal, demoMode }) {
           var active = tab === pair[0];
           return (
             <button key={pair[0]} onClick={function() { setTab(pair[0]); }}
-              style={{ padding: "7px 16px", fontSize: 13, fontWeight: active ? 700 : 400, color: active ? "#c8980a" : "#7a7880", background: "none", border: "none", borderBottom: "2px solid " + (active ? "#c8980a" : "transparent"), cursor: "pointer", fontFamily: "inherit", color: "#f1f0f4" }}>
+              style={{ padding: "7px 16px", fontSize: 13, fontWeight: active ? 700 : 400, color: active ? "#c8980a" : "#9ca3af", background: "none", border: "none", borderBottom: "2px solid " + (active ? "#c8980a" : "transparent"), cursor: "pointer", fontFamily: "inherit", color: "#f1f0f4" }}>
               {pair[1]}
             </button>
           );
@@ -1594,7 +1604,7 @@ function OutlookSyncModal({ data, upd, closeModal, demoMode }) {
         {filtered.map(function(item) {
           var dec = decisions[item.id] || {};
           var isLogging = dec.action === "log" && dec.contactId;
-          var borderColor = isLogging ? "#22c55e60" : dec.action === "skip" ? "#aaa8b030" : "#e0dde0";
+          var borderColor = isLogging ? "#22c55e60" : dec.action === "skip" ? "#ffffff15" : "#2a2f35";
 
           // People list for display
           var people = [];
@@ -1603,7 +1613,7 @@ function OutlookSyncModal({ data, upd, closeModal, demoMode }) {
           if (item._type === "calendar")        people = (item.attendees || []).filter(function(a) { return a.email && !a.email.toLowerCase().includes("west@fairco"); });
 
           return (
-            <div key={item.id} style={{ border: "1px solid " + borderColor, borderRadius: 10, padding: "12px 14px", marginBottom: 10, background: dec.action === "skip" ? "#fafafa" : "#fff", opacity: dec.action === "skip" ? 0.5 : 1 }}>
+            <div key={item.id} style={{ border: "1px solid " + borderColor, borderRadius: 10, padding: "12px 14px", marginBottom: 10, background: dec.action === "skip" ? "#0d1117" : "#13181a", opacity: dec.action === "skip" ? 0.5 : 1 }}>
               {/* Header row */}
               <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 8 }}>
                 <div style={{ flex: 1, minWidth: 0 }}>
@@ -1626,7 +1636,7 @@ function OutlookSyncModal({ data, upd, closeModal, demoMode }) {
                 {/* Action buttons */}
                 <div style={{ display: "flex", gap: 6, marginLeft: 12, flexShrink: 0 }}>
                   <button onClick={function() { setDecision(item.id, { action: dec.action === "log" ? null : "log", contactId: dec.contactId || (item._matchedCon ? item._matchedCon.id : null), accId: dec.accId || (item._matchedAcc ? item._matchedAcc.id : null), type: dec.type || (item._type === "calendar" ? guessCalendarType(item.subject) : "Email") }); }}
-                    style={{ padding: "3px 10px", fontSize: 11, borderRadius: 6, cursor: "pointer", border: "1px solid " + (isLogging ? "#22c55e80" : "#e0dde0"), background: isLogging ? "#22c55e22" : "transparent", color: isLogging ? "#16a34a" : "#6b7280", fontWeight: isLogging ? 700 : 400 }}>
+                    style={{ padding: "3px 10px", fontSize: 11, borderRadius: 6, cursor: "pointer", border: "1px solid " + (isLogging ? "#22c55e80" : "#2a2f35"), background: isLogging ? "#22c55e22" : "transparent", color: isLogging ? "#16a34a" : "#6b7280", fontWeight: isLogging ? 700 : 400 }}>
                     {isLogging ? "✓ Log" : "+ Log"}
                   </button>
                   <button onClick={function() { setDecision(item.id, { action: dec.action === "skip" ? null : "skip" }); }}
@@ -1645,7 +1655,7 @@ function OutlookSyncModal({ data, upd, closeModal, demoMode }) {
                 <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", paddingTop: 8, borderTop: "1px solid #f0eff0" }}>
                   {/* Auto-matched badge */}
                   {item._matchedCon && !dec._manualOverride && (
-                    <span style={{ fontSize: 11, color: "#16a34a", background: "#14532d22", border: "1px solid #86efac", borderRadius: 6, padding: "2px 8px" }}>
+                    <span style={{ fontSize: 11, color: "#16a34a", background: "#14532d22", border: "1px solid #22c55e60", borderRadius: 6, padding: "2px 8px", background: "#14532d33" }}>
                       ✓ {item._matchedCon.name} @ {item._matchedAcc && item._matchedAcc.name}
                     </span>
                   )}
@@ -1656,7 +1666,7 @@ function OutlookSyncModal({ data, upd, closeModal, demoMode }) {
                       var found = data.accounts.flatMap(function(a) { return a.contacts.map(function(c) { return { con: c, acc: a }; }); }).find(function(x) { return x.con.id === e.target.value; });
                       setDecision(item.id, { contactId: e.target.value, accId: found ? found.acc.id : null, _manualOverride: true });
                     }}
-                    style={{ padding: "4px 8px", borderRadius: 6, border: "1px solid #2a2f35", fontSize: 12, background: "#1e2530", fontFamily: "inherit", color: "#f1f0f4" }}>
+                    style={{ padding: "6px 10px", borderRadius: 6, border: "1px solid #374151", fontSize: 12, background: "#1e2530", fontFamily: "inherit", color: "#f1f0f4" }}>
                     <option value="">{item._matchedCon && !dec._manualOverride ? "Change contact..." : "-- Assign to contact --"}</option>
                     {data.accounts.flatMap(function(acc) {
                       return acc.contacts.map(function(con) { return { con: con, acc: acc }; });
@@ -1678,7 +1688,7 @@ function OutlookSyncModal({ data, upd, closeModal, demoMode }) {
                   <select
                     value={dec.type || "Email"}
                     onChange={function(e) { setDecision(item.id, { type: e.target.value }); }}
-                    style={{ padding: "4px 8px", borderRadius: 6, border: "1px solid #2a2f35", fontSize: 12, background: "#1e2530", fontFamily: "inherit", color: "#f1f0f4" }}>
+                    style={{ padding: "6px 10px", borderRadius: 6, border: "1px solid #374151", fontSize: 12, background: "#1e2530", fontFamily: "inherit", color: "#f1f0f4" }}>
                     {["Email","Phone Call","Coffee","Lunch","Happy Hour","Site Visit","Market Event","Proposal","LinkedIn Message","Other"].map(function(t) {
                       return <option key={t} value={t}>{t}</option>;
                     })}
@@ -1690,7 +1700,7 @@ function OutlookSyncModal({ data, upd, closeModal, demoMode }) {
                     if (jobs.length === 0) return null;
                     return (
                       <select value={dec.jobId || ""} onChange={function(e) { setDecision(item.id, { jobId: e.target.value || null }); }}
-                        style={{ padding: "4px 8px", borderRadius: 6, border: "1px solid #2a2f35", fontSize: 12, background: "#1e2530", fontFamily: "inherit", color: "#f1f0f4" }}>
+                        style={{ padding: "6px 10px", borderRadius: 6, border: "1px solid #374151", fontSize: 12, background: "#1e2530", fontFamily: "inherit", color: "#f1f0f4" }}>
                         <option value="">No job linked</option>
                         {jobs.map(function(j) { return <option key={j.id} value={j.id}>{j.name}</option>; })}
                       </select>
@@ -1705,7 +1715,7 @@ function OutlookSyncModal({ data, upd, closeModal, demoMode }) {
 
       {/* Footer */}
       <div style={{ display: "flex", gap: 10, marginTop: 18, alignItems: "center" }}>
-        <button onClick={closeModal} style={{ padding: "8px 18px", background: "transparent", border: "1px solid #d0cdd0", borderRadius: 8, cursor: "pointer", fontSize: 13, color: "#7a7880" }}>
+        <button onClick={closeModal} style={{ padding: "8px 18px", background: "transparent", border: "1px solid #d0cdd0", borderRadius: 8, cursor: "pointer", fontSize: 13, color: "#9ca3af" }}>
           Cancel
         </button>
         <button
