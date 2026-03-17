@@ -151,12 +151,14 @@ exports.handler = async (event, context) => {
     }));
 
     // Fetch calendar events
+    const futureDate = new Date();
+    futureDate.setDate(futureDate.getDate() + 90);
     const calRes = await fetch(
       `https://graph.microsoft.com/v1.0/me/calendarView`
       + `?startDateTime=${sinceISO}`
-      + `&endDateTime=${new Date().toISOString()}`
-      + `&$select=id,subject,start,end,attendees,bodyPreview,location`
-      + `&$top=100&$orderby=start/dateTime desc`,
+      + `&endDateTime=${futureDate.toISOString()}`
+      + `&$select=id,subject,start,end,attendees,organizer,bodyPreview,location`
+      + `&$top=100`,
       { headers: graphHeaders }
     );
     const calData = await calRes.json();
@@ -169,6 +171,10 @@ exports.handler = async (event, context) => {
         name: a.emailAddress.name,
         email: a.emailAddress.address
       })),
+      organizer: e.organizer ? {
+        name: e.organizer.emailAddress.name,
+        email: e.organizer.emailAddress.address
+      } : null,
       preview: e.bodyPreview ? e.bodyPreview.slice(0, 200) : "",
       source: "calendar"
     }));
