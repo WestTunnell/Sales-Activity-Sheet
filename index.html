@@ -1487,8 +1487,15 @@ function OutlookSyncModal({ data, upd, closeModal, demoMode }) {
     });
     setSaved(true);
 
-    // Save all processed IDs (logged, skipped, genLogged) to Supabase
-    const newProcessed = items.map(function(item) { return item.id; }).filter(Boolean);
+    // Save only IDs where a decision was actually made (logged, skipped, genLogged)
+    // Undecided items will reappear on next sync
+    const newProcessed = items
+      .filter(function(item) {
+        var dec = decisions[item.id];
+        return dec && (dec.action === "log" || dec.action === "skip" || dec.action === "genLog");
+      })
+      .map(function(item) { return item.id; })
+      .filter(Boolean);
     if (newProcessed.length > 0) {
       const allProcessed = [...processedIds, ...newProcessed];
       fetch("/.netlify/functions/outlook-sync", {
@@ -1565,9 +1572,22 @@ function OutlookSyncModal({ data, upd, closeModal, demoMode }) {
           <div style={{ color: "#c8980a", fontWeight: 700, fontSize: 22 }}>{toLog}</div>
           <div style={{ color: "#9ca3af", fontSize: 10, textTransform: "uppercase", letterSpacing: "0.07em" }}>Ready to Log</div>
         </div>
-        <button onClick={checkConnection} style={{ marginLeft: "auto", padding: "5px 14px", background: "transparent", border: "1px solid #2a2f35", borderRadius: 8, cursor: "pointer", fontSize: 12, color: "#9ca3af" }}>
-          ↻ Refresh
-        </button>
+        <div style={{marginLeft:"auto",display:"flex",gap:8}}>
+          <button onClick={function(){
+            if(window.confirm("This will reset your sync history so all items from the past 90 days reappear. Continue?")) {
+              fetch("/.netlify/functions/outlook-sync", {
+                method:"POST",
+                headers:{"Content-Type":"application/json"},
+                body:JSON.stringify({saveProcessed:true, processedIds:[]})
+              }).then(function(){ setProcessedIds(new Set()); checkConnection(); });
+            }
+          }} style={{ padding: "5px 14px", background: "transparent", border: "1px solid #ef444440", borderRadius: 8, cursor: "pointer", fontSize: 12, color: "#ef4444" }}>
+            Reset History
+          </button>
+          <button onClick={checkConnection} style={{ padding: "5px 14px", background: "transparent", border: "1px solid #2a2f35", borderRadius: 8, cursor: "pointer", fontSize: 12, color: "#9ca3af" }}>
+            ↻ Refresh
+          </button>
+        </div>
       </div>
 
       {/* Bulk actions */}
