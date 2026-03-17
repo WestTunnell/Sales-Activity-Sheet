@@ -410,6 +410,18 @@ function nameSimilarity(a, b) {
   return total === 0 ? 0 : (2 * intersection) / total;
 }
 
+function excelDateToISO(val) {
+  if(!val) return "";
+  var s = String(val).trim();
+  // Excel serial date (e.g. 45301)
+  if(/^\d{4,5}$/.test(s) && parseInt(s) > 40000 && parseInt(s) < 60000) {
+    var d = new Date(Date.UTC(1899,11,30) + parseInt(s)*86400000);
+    return d.toISOString().slice(0,10);
+  }
+  // Already a date string
+  return s;
+}
+
 function matchStatus(raw) {
   if (!raw) return "Active Pursuit";
   const s = raw.toLowerCase().trim();
@@ -2847,7 +2859,7 @@ function App({demoMode, onSignOut}) {
       const cn=get("contactName"),cnN=cn.toLowerCase().trim();
       if(cn&&!acc.contacts.find(c=>c.name.toLowerCase().trim()===cnN)) acc.contacts.push({name:cn,title:get("contactTitle"),email:get("contactEmail"),phone:get("contactPhone"),notes:"",activities:[]});
       const jn=get("jobName"),jnN=jn.toLowerCase().trim();
-      if(jn&&!acc.jobs.find(j=>j.name.toLowerCase().trim()===jnN)) acc.jobs.push({name:jn,status:matchStatus(get("jobStatus")),estimatedValue:get("jobValue"),location:get("jobLocation"),dueDate:get("jobDueDate"),notes:get("jobNotes"),proposals:[]});
+      if(jn&&!acc.jobs.find(j=>j.name.toLowerCase().trim()===jnN)) acc.jobs.push({name:jn,status:matchStatus(get("jobStatus")),estimatedValue:get("jobValue"),location:get("jobLocation"),dueDate:excelDateToISO(get("jobDueDate")),notes:get("jobNotes"),proposals:[]});
     });
     const imported=Object.values(accMap);
     const THRESHOLD=0.60;
@@ -3343,6 +3355,34 @@ function App({demoMode, onSignOut}) {
           <textarea style={{...inp,resize:"vertical",height:180}} value={form.marketList!=null?form.marketList:allMarkets.join("\n")} onChange={ff("marketList")}/>
         </Field>
         <button style={{...btn(null,C.textLo,C.border2),width:"100%",justifyContent:"center"}} onClick={saveMarkets}>Save Market List</button>
+        <div style={divL}/>
+        <div style={{fontFamily:C.serif,fontSize:16,color:C.textHi,marginBottom:6}}>Restore from Backup</div>
+        <div style={{fontSize:12,color:C.textDim,marginBottom:10}}>Upload a previously exported SalesOS JSON file to restore your data. Your settings and password will be kept.</div>
+        <label style={{display:"block",border:"2px dashed "+C.border2,borderRadius:10,padding:"14px",textAlign:"center",cursor:"pointer",color:C.textLo,fontSize:13,marginBottom:4}}>
+          📁 Click to upload JSON backup
+          <input type="file" accept=".json" style={{display:"none"}} onChange={function(e){
+            var file = e.target.files[0];
+            if(!file) return;
+            var reader = new FileReader();
+            reader.onload = function(ev) {
+              try {
+                var imported = JSON.parse(ev.target.result);
+                if(!imported.accounts) { alert("Invalid SalesOS backup file."); return; }
+                if(!window.confirm("This will replace all your accounts, contacts, jobs and activities with the backup. Settings and password are kept. Continue?")) return;
+                upd(function(d) {
+                  d.accounts = imported.accounts || [];
+                  d.generalActivities = imported.generalActivities || [];
+                  return d;
+                });
+                closeModal();
+                alert("✅ Data restored successfully!");
+              } catch(err) {
+                alert("Could not read file: " + err.message);
+              }
+            };
+            reader.readAsText(file);
+          }}/>
+        </label>
         <div style={divL}/>
         <div style={{fontFamily:C.serif,fontSize:16,color:"#ef4444",marginBottom:6}}>Danger Zone</div>
         <div style={{fontSize:12,color:C.textDim,marginBottom:10}}>Permanently delete all accounts, contacts, jobs, and activities. This cannot be undone. Your settings and password will be kept.</div>
