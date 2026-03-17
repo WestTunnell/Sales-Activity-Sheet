@@ -460,6 +460,7 @@ const C = {
   serif:"'DM Serif Display',Georgia,serif", sans:"'DM Sans','Helvetica Neue',sans-serif",
 };
 const inp  = {width:"100%",background:"#f8f7f8",border:`1px solid ${C.border2}`,borderRadius:8,color:C.text,padding:"9px 12px",fontSize:14,fontFamily:C.sans,boxSizing:"border-box",outline:"none"};
+const inpD = {width:'100%',background:'#1e2530',border:'1px solid #374151',borderRadius:8,color:'#f1f0f4',padding:'9px 12px',fontSize:14,fontFamily:"'DM Sans','Helvetica Neue',sans-serif",boxSizing:'border-box',outline:'none'};
 const card = {background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:20,marginBottom:14,transition:"border-color 0.15s"};
 const btn  = (bg,col,bord) => ({background:bg||"transparent",color:col||C.text,border:`1px solid ${bord||C.border2}`,borderRadius:8,padding:"7px 14px",fontSize:13,fontWeight:bg?700:400,cursor:"pointer",display:"inline-flex",alignItems:"center",gap:6,fontFamily:C.sans});
 const lbl  = {fontSize:11,letterSpacing:"0.08em",textTransform:"uppercase",color:C.textDim};
@@ -802,7 +803,7 @@ function ContactImportModal({data, upd, closeModal}) {
       <div style={{textAlign:"center", padding:"40px 20px"}}>
         <div style={{fontSize:36, marginBottom:12}}>&#10003;</div>
         <div style={{fontFamily:"Georgia,serif", fontSize:18, color:"#1a1820", marginBottom:8}}>Done!</div>
-        <div style={{fontSize:13, color:"#6b7280", marginBottom:24}}>Contact info updated.</div>
+        <div style={{fontSize:13, color:"#9ca3af", marginBottom:24}}>Contact info updated.</div>
         <button onClick={closeModal} style={{padding:"8px 24px", background:"#c8980a", border:"none", borderRadius:8, color:"#0a0d13", fontWeight:700, cursor:"pointer", fontSize:14}}>Done</button>
       </div>
     );
@@ -820,15 +821,15 @@ function ContactImportModal({data, upd, closeModal}) {
           style={{border:"2px dashed #d1d5db", borderRadius:12, padding:"48px 24px", textAlign:"center", cursor:"pointer", background:"#fafafa"}}>
           <div style={{fontSize:36, marginBottom:12}}>&#128203;</div>
           <div style={{fontWeight:700, fontSize:15, color:"#1a1820", marginBottom:6}}>Drop a screenshot here</div>
-          <div style={{fontSize:13, color:"#6b7280"}}>Drop a file, click to browse, or <strong>Ctrl+V</strong> to paste from clipboard</div>
+          <div style={{fontSize:13, color:"#9ca3af"}}>Drop a file, click to browse, or <strong>Ctrl+V</strong> to paste from clipboard</div>
           <input ref={fileRef} type="file" accept="image/*" style={{display:"none"}} onChange={function(e){handleFile(e.target.files[0]);}}/>
         </div>
       )}
       {imgData && !extracted && (
         <div>
-          <img src={imgData} style={{width:"100%", maxHeight:300, objectFit:"contain", borderRadius:8, marginBottom:16, border:"1px solid #e5e7eb"}}/>
+          <img src={imgData} style={{width:"100%", maxHeight:300, objectFit:"contain", borderRadius:8, marginBottom:16, border:"1px solid #374151"}}/>
           <div style={{display:"flex", gap:10}}>
-            <button onClick={function(){setImgData(null);}} style={{padding:"8px 18px", background:"transparent", border:"1px solid #d1d5db", borderRadius:8, cursor:"pointer", fontSize:13, color:"#6b7280"}}>
+            <button onClick={function(){setImgData(null);}} style={{padding:"8px 18px", background:"transparent", border:"1px solid #374151", borderRadius:8, cursor:"pointer", fontSize:13, color:"#9ca3af"}}>
               Use Different Image
             </button>
             <button onClick={extract} disabled={loading} style={{flex:1, padding:"8px 18px", background:loading?"#e5e7eb":"#c8980a", border:"none", borderRadius:8, cursor:loading?"default":"pointer", fontWeight:700, fontSize:14, color:loading?"#9ca3af":"#0a0d13"}}>
@@ -836,7 +837,7 @@ function ContactImportModal({data, upd, closeModal}) {
             </button>
           </div>
           {loading && (
-            <div style={{textAlign:"center", color:"#6b7280", fontSize:13, marginTop:16}}>Claude is reading the image...</div>
+            <div style={{textAlign:"center", color:"#9ca3af", fontSize:13, marginTop:16}}>Claude is reading the image...</div>
           )}
         </div>
       )}
@@ -848,7 +849,7 @@ function ContactImportModal({data, upd, closeModal}) {
             </div>
           )}
           {extracted.company && (
-            <div style={{fontSize:13, color:"#6b7280", marginBottom:14}}>
+            <div style={{fontSize:13, color:"#9ca3af", marginBottom:14}}>
               Found company: <strong style={{color:"#c8980a"}}>{extracted.company}</strong>
             </div>
           )}
@@ -856,13 +857,13 @@ function ContactImportModal({data, upd, closeModal}) {
             {(extracted.contacts||[]).map(function(ec, i) {
               var r = resolved[i] || {};
               return (
-                <div key={i} style={{border:"1px solid #e5e7eb", borderRadius:10, padding:"12px 14px", background:"#fff"}}>
+                <div key={i} style={{border:"1px solid #374151", borderRadius:10, padding:"12px 14px", background:"#1e2530"}}>
                   <div style={{display:"flex", alignItems:"flex-start", justifyContent:"space-between", marginBottom:8}}>
                     <div>
                       <div style={{fontWeight:700, fontSize:14, color:"#1a1820"}}>{ec.name||"—"}</div>
-                      {ec.title && <div style={{fontSize:12, color:"#6b7280"}}>{ec.title}</div>}
-                      {ec.email && <div style={{fontSize:12, color:"#6b7280"}}>{ec.email}</div>}
-                      {ec.phone && <div style={{fontSize:12, color:"#6b7280"}}>{ec.phone}</div>}
+                      {ec.title && <div style={{fontSize:12, color:"#9ca3af"}}>{ec.title}</div>}
+                      {ec.email && <div style={{fontSize:12, color:"#9ca3af"}}>{ec.email}</div>}
+                      {ec.phone && <div style={{fontSize:12, color:"#9ca3af"}}>{ec.phone}</div>}
                     </div>
                     <div style={{display:"flex", gap:6}}>
                       {["update","add","skip"].map(function(act) {
@@ -894,7 +895,7 @@ function ContactImportModal({data, upd, closeModal}) {
                         var found = allConFlat.find(function(x){return x.con.id===e.target.value;});
                         if(found) updateResolved(i,{con:found.con, acc:found.acc});
                         else updateResolved(i,{action:"add"});
-                      }} style={{width:"100%", padding:"6px 8px", borderRadius:6, border:"1px solid #e5e7eb", fontSize:13}}>
+                      }} style={{width:"100%", padding:"6px 8px", borderRadius:6, border:"1px solid #374151", fontSize:13, background:"#1e2530", color:"#f1f0f4"}}>
                         <option value="">-- Search contacts --</option>
                         {allConFlat.sort(function(a,b){return a.con.name.localeCompare(b.con.name);}).map(function(x){
                           return <option key={x.con.id} value={x.con.id}>{x.con.name} — {x.acc.name}</option>;
@@ -938,7 +939,7 @@ function ContactImportModal({data, upd, closeModal}) {
             })}
           </div>
           <div style={{display:"flex", gap:10}}>
-            <button onClick={function(){setExtracted(null);setImgData(null);setResolved([]);}} style={{padding:"8px 18px", background:"transparent", border:"1px solid #d1d5db", borderRadius:8, cursor:"pointer", fontSize:13, color:"#6b7280"}}>
+            <button onClick={function(){setExtracted(null);setImgData(null);setResolved([]);}} style={{padding:"8px 18px", background:"transparent", border:"1px solid #374151", borderRadius:8, cursor:"pointer", fontSize:13, color:"#9ca3af"}}>
               Start Over
             </button>
             <button onClick={save} disabled={resolved.every(function(r){return r.action==="skip";})||resolved.length===0}
@@ -1015,7 +1016,7 @@ function ContactImportModal({data, upd, closeModal}) {
             <div style={{fontWeight:600,fontSize:13,color:C.textLo,marginBottom:6}}>Search Contact</div>
             <input
               autoFocus
-              style={{...inp, width:"100%", boxSizing:"border-box"}}
+              style={{...inpD, width:"100%", boxSizing:"border-box"}}
               placeholder="Type a name or account..."
               value={search}
               onChange={e=>setSearch(e.target.value)}
@@ -1051,20 +1052,20 @@ function ContactImportModal({data, upd, closeModal}) {
         <div style={{display:"flex",gap:8}}>
           <div style={{flex:1}}>
             <div style={{fontWeight:600,fontSize:13,color:C.textLo,marginBottom:4}}>Type</div>
-            <select style={{...inp,width:"100%"}} value={f.type} onChange={upF("type")}>
+            <select style={{...inpD,width:"100%"}} value={f.type} onChange={upF("type")}>
               {ACTIVITY_TYPES.map(t=><option key={t} value={t}>{t}</option>)}
             </select>
           </div>
           <div style={{flex:1}}>
             <div style={{fontWeight:600,fontSize:13,color:C.textLo,marginBottom:4}}>Date</div>
-            <input type="date" style={{...inp,width:"100%"}} value={f.date} onChange={upF("date")}/>
+            <input type="date" style={{...inpD,width:"100%"}} value={f.date} onChange={upF("date")}/>
           </div>
         </div>
 
         <div>
           <div style={{fontWeight:600,fontSize:13,color:C.textLo,marginBottom:4}}>Notes</div>
           <textarea
-            style={{...inp,width:"100%",minHeight:80,resize:"vertical",boxSizing:"border-box"}}
+            style={{...inpD,width:"100%",minHeight:80,resize:"vertical",boxSizing:"border-box"}}
             placeholder="What happened? Key details..."
             value={f.notes}
             onChange={upF("notes")}
@@ -1073,7 +1074,7 @@ function ContactImportModal({data, upd, closeModal}) {
 
         <div>
           <div style={{fontWeight:600,fontSize:13,color:C.textLo,marginBottom:4}}>Follow-up Date <span style={{fontWeight:400}}>(optional)</span></div>
-          <input type="date" style={{...inp,width:"100%"}} value={f.followUp} onChange={upF("followUp")}/>
+          <input type="date" style={{...inpD,width:"100%"}} value={f.followUp} onChange={upF("followUp")}/>
         </div>
 
         <button
@@ -1205,11 +1206,7 @@ const AddToSalesOSForm = ({item, dec, setDecision, data, upd}) => {
     }, 100);
   }
 
-  const inputStyle = {
-    width:"100%", padding:"6px 8px", borderRadius:6,
-    border:"1px solid #2a2f35", background:"#0d1117",
-    color:"#f1f0f4", fontSize:12, boxSizing:"border-box", fontFamily:"inherit"
-  };
+  const inputStyle = {...inpD, fontSize:12, padding:"6px 8px"};
 
   return (
     <div style={{marginTop:8,background:"#0d1117",border:"1px solid #22c55e40",borderRadius:8,padding:"12px",width:"100%"}}>
@@ -1218,24 +1215,24 @@ const AddToSalesOSForm = ({item, dec, setDecision, data, upd}) => {
       </div>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:6}}>
         <div>
-          <div style={{fontSize:11,color:"#6b7280",marginBottom:2}}>Name *</div>
+          <div style={{fontSize:11,color:"#9ca3af",marginBottom:2}}>Name *</div>
           <input style={inputStyle} value={form.name} onChange={upF("name")} placeholder="Full name"/>
         </div>
         <div>
-          <div style={{fontSize:11,color:"#6b7280",marginBottom:2}}>Email</div>
+          <div style={{fontSize:11,color:"#9ca3af",marginBottom:2}}>Email</div>
           <input style={inputStyle} value={form.email} onChange={upF("email")} placeholder="email@company.com"/>
         </div>
         <div>
-          <div style={{fontSize:11,color:"#6b7280",marginBottom:2}}>Title</div>
+          <div style={{fontSize:11,color:"#9ca3af",marginBottom:2}}>Title</div>
           <input style={inputStyle} value={form.title} onChange={upF("title")} placeholder="Project Manager"/>
         </div>
         <div>
-          <div style={{fontSize:11,color:"#6b7280",marginBottom:2}}>Phone</div>
+          <div style={{fontSize:11,color:"#9ca3af",marginBottom:2}}>Phone</div>
           <input style={inputStyle} value={form.phone} onChange={upF("phone")} placeholder="(602) 555-0000"/>
         </div>
       </div>
       <div style={{marginBottom:6}}>
-        <div style={{fontSize:11,color:"#6b7280",marginBottom:2}}>Add to existing account</div>
+        <div style={{fontSize:11,color:"#9ca3af",marginBottom:2}}>Add to existing account</div>
         <select style={{...inputStyle}} value={form.existingAccId} onChange={upF("existingAccId")}>
           <option value="">-- Create new account from company name --</option>
           {data.accounts.sort((a,b)=>a.name.localeCompare(b.name)).map(a=>(
@@ -1246,11 +1243,11 @@ const AddToSalesOSForm = ({item, dec, setDecision, data, upd}) => {
       {!form.existingAccId && (
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:6}}>
           <div>
-            <div style={{fontSize:11,color:"#6b7280",marginBottom:2}}>Company name *</div>
+            <div style={{fontSize:11,color:"#9ca3af",marginBottom:2}}>Company name *</div>
             <input style={inputStyle} value={form.company} onChange={upF("company")} placeholder="Company name"/>
           </div>
           <div>
-            <div style={{fontSize:11,color:"#6b7280",marginBottom:2}}>Tier</div>
+            <div style={{fontSize:11,color:"#9ca3af",marginBottom:2}}>Tier</div>
             <select style={inputStyle} value={form.tier} onChange={upF("tier")}>
               <option value="Priority">Priority</option>
               <option value="Developing">Developing</option>
@@ -2023,7 +2020,7 @@ INSTRUCTIONS:
           <select
             value={templateKey}
             onChange={e=>setTemplateKey(e.target.value)}
-            style={{width:"100%",background:"#1e2530",border:"1px solid #2a2f35",borderRadius:8,padding:"8px 12px",color:"#f1f0f4",fontSize:13}}
+            style={{...inpD}}
           >
             {Object.entries(CAMPAIGN_TEMPLATES).map(([k,v])=><option key={k} value={k}>{v.label}</option>)}
           </select>
@@ -2046,7 +2043,7 @@ INSTRUCTIONS:
               <textarea
                 value={draft}
                 onChange={e=>setDraft(e.target.value)}
-                style={{width:"100%",minHeight:200,background:"#1e2530",border:"1px solid #2a2f35",borderRadius:8,padding:"10px 12px",color:"#f1f0f4",fontSize:13,lineHeight:1.5,resize:"vertical",boxSizing:"border-box"}}
+                style={{...inpD}}
               />
             </div>
             <div style={{display:"flex",gap:8}}>
@@ -2222,7 +2219,7 @@ Return ONLY the JSON array, no other text.`;
               <strong style={{color:"#f1f0f4"}}>How to export:</strong> LinkedIn → Me → Settings & Privacy → Data Privacy → Get a copy of your data → Connections → Request archive (arrives by email in ~10 min)
             </div>
             {error && <div style={{color:"#ef4444",fontSize:12,marginBottom:10}}>{error}</div>}
-            <label style={{display:"block",border:"2px dashed #2a2f35",borderRadius:10,padding:"30px",textAlign:"center",cursor:"pointer",color:"#6b7280",fontSize:13}}>
+            <label style={{display:"block",border:"2px dashed #374151",borderRadius:10,padding:"30px",textAlign:"center",cursor:"pointer",color:"#9ca3af",fontSize:13}}>
               <div style={{fontSize:24,marginBottom:8}}>📁</div>
               Click to upload LinkedIn connections CSV
               <input type="file" accept=".csv" onChange={handleFile} style={{display:"none"}}/>
@@ -4125,19 +4122,14 @@ function App({demoMode, onSignOut}) {
                 </div>
               </div>
             )}
-            {(data.generalActivities||[]).length===0&&!showGenLog&&(
-              <div style={{fontSize:13,color:C.textDim}}>No general outreach logged yet. Track LinkedIn blasts, events, and cold outreach here.</div>
+            {!showGenLog&&(
+              <div style={{fontSize:12,color:C.textDim,paddingTop:4}}>
+                {(data.generalActivities||[]).length===0
+                  ? "No general outreach logged yet."
+                  : <span>{(data.generalActivities||[]).length} entr{(data.generalActivities||[]).length===1?"y":"ies"} logged — <span style={{color:C.blue,cursor:"pointer",textDecoration:"underline"}} onClick={()=>setDashTab("feed")}>view in Activity Feed</span></span>
+                }
+              </div>
             )}
-            <div style={{display:"flex",flexDirection:"column",gap:8,maxHeight:300,overflowY:"auto"}}>
-              {(data.generalActivities||[]).slice(0,30).map(a=>(
-                <div key={a.id} style={{display:"flex",alignItems:"center",gap:12,background:C.bg,border:"1px solid "+C.border,borderRadius:8,padding:"9px 14px"}}>
-                  <span style={{...pill(C.blue),fontSize:11,whiteSpace:"nowrap"}}>{a.type}</span>
-                  <span style={{fontSize:13,color:C.textHi,flex:1}}>{a.notes}</span>
-                  <span style={{fontSize:11,color:C.textDim,whiteSpace:"nowrap"}}>{a.count>1?a.count+" contacts · ":""}{a.date}</span>
-                  <button onClick={e=>{e.stopPropagation();delGeneralActivity(a.id);}} style={{background:"none",border:"none",color:C.red,cursor:"pointer",fontSize:14,padding:"0 6px",lineHeight:1,borderRadius:4}} title="Delete">✕</button>
-                </div>
-              ))}
-            </div>
           </div>
         </div>
 
