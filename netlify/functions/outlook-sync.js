@@ -108,7 +108,7 @@ exports.handler = async (event, context) => {
     since.setDate(since.getDate() - 90);
     const sinceISO = since.toISOString();
 
-    // Fetch sent emails
+    // Fetch sent emails from SentItems
     const emailRes = await fetch(
       `https://graph.microsoft.com/v1.0/me/mailFolders/SentItems/messages`
       + `?$filter=sentDateTime ge ${sinceISO}`
@@ -129,26 +129,32 @@ exports.handler = async (event, context) => {
       source: "email_sent"
     }));
 
-    // Fetch received emails
+    // Fetch received emails across ALL folders (inbox + job folders)
+    const myEmail = (process.env.OUTLOOK_USER_EMAIL || 'west@fairco.ca').toLowerCase();
     const inboxRes = await fetch(
-      `https://graph.microsoft.com/v1.0/me/mailFolders/Inbox/messages`
-      + `?$filter=receivedDateTime ge ${sinceISO}`
+      `https://graph.microsoft.com/v1.0/me/messages`
+      + `?$filter=receivedDateTime ge ${sinceISO} and isDraft eq false`
       + `&$select=id,subject,receivedDateTime,from,bodyPreview`
       + `&$top=100&$orderby=receivedDateTime desc`,
       { headers: graphHeaders }
     );
     const inboxData = await inboxRes.json();
-    const received = (inboxData.value || []).map(m => ({
-      id: m.id,
-      subject: m.subject,
-      date: m.receivedDateTime ? m.receivedDateTime.slice(0, 10) : null,
-      from: m.from ? {
-        name: m.from.emailAddress.name,
-        email: m.from.emailAddress.address
-      } : null,
-      preview: m.bodyPreview ? m.bodyPreview.slice(0, 200) : "",
-      source: "email_received"
-    }));
+    const received = (inboxData.value || [])
+      .filter(m => {
+        const sender = m.from && m.from.emailAddress && m.from.emailAddress.address;
+        return sender && sender.toLowerCase() !== myEmail;
+      })
+      .map(m => ({
+        id: m.id,
+        subject: m.subject,
+        date: m.receivedDateTime ? m.receivedDateTime.slice(0, 10) : null,
+        from: m.from ? {
+          name: m.from.emailAddress.name,
+          email: m.from.emailAddress.address
+        } : null,
+        preview: m.bodyPreview ? m.bodyPreview.slice(0, 200) : "",
+        source: "email_received"
+      }));
 
     // Fetch calendar events
     const futureDate = new Date();
@@ -165,7 +171,18 @@ exports.handler = async (event, context) => {
     const events = (calData.value || []).map(e => ({
       id: e.id,
       subject: e.subject,
-      date: e.start && e.start.dateTime ? e.start.dateTime.slice(0, 10) : null,
+      date: e.start && e.start.dateTime ? (function() {
+        // Microsoft Graph returns UTC — convert to local date to avoid day-shift bug
+        // e.g. 7pm Arizona (MST) = next day UTC, so we parse as local not UTC
+        var dt = e.start.dateTime;
+        // If no Z suffix, it's already local time — just slice
+        if (!dt.endsWith('Z') && !dt.includes('+')) return dt.slice(0, 10);
+        // Otherwise convert UTC to local
+        var d = new Date(dt);
+        return d.getFullYear() + '-' +
+          String(d.getMonth()+1).padStart(2,'0') + '-' +
+          String(d.getDate()).padStart(2,'0');
+      })() : null,
       location: e.location && e.location.displayName ? e.location.displayName : "",
       attendees: (e.attendees || []).map(a => ({
         name: a.emailAddress.name,
