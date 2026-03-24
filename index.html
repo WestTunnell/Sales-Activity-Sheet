@@ -471,13 +471,17 @@ const tag  = (c,txt,onClick) => React.createElement('span',{onClick,style:{...pi
 const tabS = a => ({padding:"9px 18px",fontSize:13,fontWeight:a?700:400,color:a?C.gold:C.textLo,background:"none",border:"none",borderBottom:`2px solid ${a?C.gold:"transparent"}`,cursor:"pointer",fontFamily:C.sans});
 const MARKET_C = C.purple;
 
-function Modal({title,onClose,children,wide,xwide}) {
+function Modal({title,onClose,children,wide,xwide,dark}) {
+  const modalBg = dark ? "#13181a" : "#ffffff";
+  const modalBorder = dark ? "#2a2f35" : C.border2;
+  const titleColor = dark ? "#f1f0f4" : C.textHi;
+  const closeColor = dark ? "#6b7280" : C.textDim;
   return (
     <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.85)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:1000,padding:20}}>
-      <div style={{background:"#ffffff",border:`1px solid ${C.border2}`,borderRadius:12,width:"100%",maxWidth:xwide?920:wide?680:520,maxHeight:"90vh",overflow:"auto"}}>
-        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"17px 24px",borderBottom:`1px solid ${C.border}`,position:"sticky",top:0,background:"#ffffff",zIndex:1}}>
-          <span style={{fontFamily:C.serif,fontSize:18,color:C.textHi}}>{title}</span>
-          <button onClick={onClose} style={{background:"none",border:"none",color:C.textLo,cursor:"pointer",padding:4,fontSize:18}}>x</button>
+      <div style={{background:modalBg,border:`1px solid ${modalBorder}`,borderRadius:12,width:"100%",maxWidth:xwide?920:wide?680:520,maxHeight:"90vh",overflow:"auto"}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"17px 24px",borderBottom:`1px solid ${dark?"#2a2f35":C.border}`,position:"sticky",top:0,background:modalBg,zIndex:1}}>
+          <span style={{fontFamily:C.serif,fontSize:18,color:titleColor}}>{title}</span>
+          <button onClick={onClose} style={{background:"none",border:"none",color:closeColor,cursor:"pointer",padding:4,fontSize:18}}>x</button>
         </div>
         <div style={{padding:24}}>{children}</div>
       </div>
@@ -733,7 +737,7 @@ function ContactImportModal({data, upd, closeModal}) {
       });
       var d = await res.json();
       if(d.error) throw new Error(d.error.message||"API error");
-      var txt = (d.content||[]).filter(function(b){return b.type==="text";}).map(function(b){return b.text;}).join("").trim();
+      var txt = (d.content||[]).filter(function(b){return b.type==="text";}).map(function(b){return b.text;}).join("\n").trim();
       txt = txt.replace(/^```json\s*/,"").replace(/^```\s*/,"").replace(/\s*```$/,"").trim();
       var jsonMatch = txt.match(/\{[\s\S]*\}/);
       if(!jsonMatch) throw new Error("No JSON found in response: "+txt.slice(0,100));
@@ -896,9 +900,9 @@ function ContactImportModal({data, upd, closeModal}) {
                         if(found) updateResolved(i,{con:found.con, acc:found.acc});
                         else updateResolved(i,{action:"add"});
                       }} style={{width:"100%", padding:"6px 8px", borderRadius:6, border:"1px solid #374151", fontSize:13, background:"#1e2530", color:"#f1f0f4"}}>
-                        <option value="">-- Search contacts --</option>
+                        <option value="" style={{background:"#1e2530",color:"#6b7280"}}>-- Search contacts --</option>
                         {allConFlat.sort(function(a,b){return a.con.name.localeCompare(b.con.name);}).map(function(x){
-                          return <option key={x.con.id} value={x.con.id}>{x.con.name} — {x.acc.name}</option>;
+                          return <option key={x.con.id} value={x.con.id} style={{background:'#1e2530',color:'#e2e8f0'}}>{x.con.name} — {x.acc.name}</option>;
                         })}
                       </select>
                     </div>
@@ -908,9 +912,9 @@ function ContactImportModal({data, upd, closeModal}) {
                       <span style={{color:"#9ca3af",fontSize:11,fontWeight:600}}>Add to account: </span>
                       <select value={r.targetAccId||"new"} onChange={function(e){updateResolved(i,{targetAccId:e.target.value});}}
                         style={{padding:"6px 10px", borderRadius:6, border:"1px solid #374151", fontSize:12, marginLeft:4, background:"#1e2530", color:"#f1f0f4"}}>
-                        <option value="new">+ Create new account{extracted.company?" ("+extracted.company+")":""}</option>
+                        <option value="new" style={{background:"#1e2530",color:"#9ca3af"}}>+ Create new account{extracted.company?" ("+extracted.company+")":""}</option>
                         {data.accounts.sort(function(a,b){return a.name.localeCompare(b.name);}).map(function(a){
-                          return <option key={a.id} value={a.id}>{a.name}</option>;
+                          return <option key={a.id} value={a.id} style={{background:"#1e2530",color:"#e2e8f0"}}>{a.name}</option>;
                         })}
                       </select>
                       {(r.targetAccId==="new"||!r.targetAccId) && (
@@ -926,9 +930,9 @@ function ContactImportModal({data, upd, closeModal}) {
                             onChange={function(e){updateResolved(i,{newAccTier:parseInt(e.target.value)});}}
                             style={{padding:"5px 8px",borderRadius:6,border:"1px solid #374151",background:"#1e2530",color:"#f1f0f4",fontSize:12}}
                           >
-                            <option value={1}>T1 Priority</option>
-                            <option value={2}>T2 Developing</option>
-                            <option value={3}>T3 Long Game</option>
+                            <option value={1} style={{background:"#1e2530",color:"#e2e8f0"}}>T1 Priority</option>
+                            <option value={2} style={{background:"#1e2530",color:"#e2e8f0"}}>T2 Developing</option>
+                            <option value={3} style={{background:"#1e2530",color:"#e2e8f0"}}>T3 Long Game</option>
                           </select>
                         </div>
                       )}
@@ -1281,7 +1285,10 @@ function OutlookSyncModal({ data, upd, closeModal, demoMode }) {
   const [items,      setItems]      = React.useState([]);      // all fetched items
   const [decisions,  setDecisions]  = React.useState({});     // id -> { action, contactId, accId, jobId, type }
   const [processedIds, setProcessedIds] = React.useState(new Set()); // IDs already dealt with
-  const [openDropdown, setOpenDropdown] = React.useState(null); // tracks which dropdown is open
+  const [openDropdown, setOpenDropdown] = React.useState(null);
+  const [filteredOut, setFilteredOut] = React.useState([]); // Tier 4 - Claude filtered
+  const [showFiltered, setShowFiltered] = React.useState(false);
+  const [claudeFiltering, setClaudeFiltering] = React.useState(false); // tracks which dropdown is open
 
   // Custom dark dropdown component
   const DarkSelect = function({value, onChange, options, placeholder, style}) {
@@ -1438,11 +1445,63 @@ function OutlookSyncModal({ data, upd, closeModal, demoMode }) {
       return { ...item, _matchedCon: matchedCon, _matchedAcc: matchedAcc, _emails: emails };
     });
 
-    setItems(withMatches);
+    // ── Tier classification ─────────────────────────────────────────────────
+    // Get all known account domains
+    const knownDomains = new Set();
+    data.accounts.forEach(function(acc) {
+      acc.contacts.forEach(function(con) {
+        if(con.email && con.email.includes("@")) {
+          knownDomains.add(con.email.split("@")[1].toLowerCase());
+        }
+      });
+    });
+
+    const tier1 = []; // matched contact
+    const tier2 = []; // known domain, new person
+    const tier3plus = []; // unknown - needs Claude filtering
+
+    withMatches.forEach(function(item) {
+      if(item._matchedCon) {
+        item._tier = 1;
+        tier1.push(item);
+      } else {
+        // Check if any external email matches a known domain
+        const myEmail = (data.settings && data.settings.userEmail) ? data.settings.userEmail.toLowerCase() : "west@fairco.ca";
+        const extEmails = (item._emails||[]).filter(function(e){return e !== myEmail;});
+        const matchedDomain = extEmails.some(function(e){
+          const domain = e.split("@")[1];
+          return domain && knownDomains.has(domain.toLowerCase());
+        });
+        // Find which account the domain belongs to
+        if(matchedDomain) {
+          extEmails.forEach(function(e) {
+            const domain = e.split("@")[1];
+            if(domain) {
+              data.accounts.forEach(function(acc) {
+                acc.contacts.forEach(function(con) {
+                  if(con.email && con.email.toLowerCase().includes("@"+domain.toLowerCase())) {
+                    if(!item._domainAcc) item._domainAcc = acc;
+                  }
+                });
+              });
+            }
+          });
+          item._tier = 2;
+          tier2.push(item);
+        } else {
+          item._tier = 3;
+          tier3plus.push(item);
+        }
+      }
+    });
+
+    // Show Tier 1 + 2 immediately
+    const immediateItems = tier1.concat(tier2);
+    setItems(immediateItems);
 
     // Auto-set decisions for matched items
     const autoDecs = {};
-    withMatches.forEach(function(item) {
+    immediateItems.forEach(function(item) {
       if (item._matchedCon) {
         autoDecs[item.id] = {
           action: "log",
@@ -1453,7 +1512,73 @@ function OutlookSyncModal({ data, upd, closeModal, demoMode }) {
       }
     });
     setDecisions(autoDecs);
+
+    // Run Claude filtering on Tier 3 in background
+    if(tier3plus.length > 0) {
+      claudeFilterItems(tier3plus);
+    }
   }
+
+  async function claudeFilterItems(unknowns) {
+    setClaudeFiltering(true);
+    var batchSize = 30;
+    var relevant = [];
+    var irrelevant = [];
+
+    for(var i = 0; i < unknowns.length; i += batchSize) {
+      var batch = unknowns.slice(i, i + batchSize);
+
+      // Build items string without template literals
+      var itemLines = batch.map(function(item, j) {
+        var who = "";
+        if(item._type === "email_sent") {
+          who = "To: " + (item.to||[]).map(function(t){return t.name+" <"+t.email+">";}).join(", ");
+        } else if(item._type === "email_received") {
+          who = "From: " + (item.from ? item.from.name+" <"+item.from.email+">" : "unknown");
+        } else {
+          who = "Calendar: " + (item.attendees||[]).map(function(a){return a.name;}).join(", ");
+        }
+        return (i+j) + ". [" + item._type + "] " + (item.subject||"No subject") + " | " + who;
+      }).join("\n");
+
+      var prompt = "You are filtering emails/calendar events for West Tunnell, BD at Fairco Inc. (commercial landscape construction in AZ/CA/NV).\n" +
+        "Keep items relevant to BD: GCs, developers, owners, engineers, project managers, estimators, construction firms, land developers.\n" +
+        "Filter OUT: newsletters, marketing emails, shopping/receipts, personal emails, spam, unsubscribe, noreply, LinkedIn notifications, bank/finance, healthcare, software/SaaS.\n\n" +
+        "For each item return ONLY a JSON array: [{\"idx\": number, \"keep\": true/false, \"reason\": \"brief reason\"}]\n\n" +
+        "Items:\n" + itemLines + "\n\nReturn ONLY the JSON array.";
+
+      try {
+        var res = await fetch("https://api.anthropic.com/v1/messages", {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({
+            model: "claude-sonnet-4-20250514",
+            max_tokens: 1000,
+            messages: [{role: "user", content: prompt}]
+          })
+        });
+        var json = await res.json();
+        var text = json.content && json.content[0] && json.content[0].text || "[]";
+        var clean = text.replace(/```json|```/g, "").trim();
+        var results = JSON.parse(clean);
+        results.forEach(function(r) {
+          var item = unknowns[r.idx];
+          if(item) {
+            item._claudeReason = r.reason;
+            if(r.keep) { item._tier = 3; relevant.push(item); }
+            else { item._tier = 4; irrelevant.push(item); }
+          }
+        });
+      } catch(e) {
+        batch.forEach(function(item) { item._tier = 3; relevant.push(item); });
+      }
+    }
+
+    setItems(function(prev) { return prev.concat(relevant); });
+    setFilteredOut(irrelevant);
+    setClaudeFiltering(false);
+  }
+
 
   function guessCalendarType(subject) {
     if (!subject) return "Other";
@@ -1677,7 +1802,7 @@ function OutlookSyncModal({ data, upd, closeModal, demoMode }) {
           var active = tab === pair[0];
           return (
             <button key={pair[0]} onClick={function() { setTab(pair[0]); }}
-              style={{ padding: "7px 16px", fontSize: 13, fontWeight: active ? 700 : 400, color: active ? "#c8980a" : "#9ca3af", background: "none", border: "none", borderBottom: "2px solid " + (active ? "#c8980a" : "transparent"), cursor: "pointer", fontFamily: "inherit", color: "#f1f0f4" }}>
+              style={{ padding: "7px 16px", fontSize: 13, fontWeight: active ? 700 : 400, color: active ? "#c8980a" : "#9ca3af", background: "none", border: "none", borderBottom: "2px solid " + (active ? "#c8980a" : "transparent"), cursor: "pointer", fontFamily: "inherit" }}>
               {pair[1]}
             </button>
           );
@@ -1692,7 +1817,7 @@ function OutlookSyncModal({ data, upd, closeModal, demoMode }) {
         {filtered.map(function(item) {
           var dec = decisions[item.id] || {};
           var isLogging = dec.action === "log" && dec.contactId;
-          var borderColor = isLogging ? "#22c55e60" : dec.action === "skip" ? "#ffffff15" : "#2a2f35";
+          var borderColor = isLogging ? "#22c55e60" : dec.action === "skip" ? "#ffffff15" : item._tier===2?"#60a5fa30":"#2a2f35";
 
           // People list for display
           var people = [];
@@ -1709,6 +1834,8 @@ function OutlookSyncModal({ data, upd, closeModal, demoMode }) {
                     <span style={{ background: item._color + "22", color: item._color, border: "1px solid " + item._color + "50", borderRadius: 6, padding: "2px 8px", fontSize: 11, fontWeight: 600 }}>
                       {item._label}
                     </span>
+                    {item._tier===2&&item._domainAcc&&<span style={{fontSize:10,padding:"2px 7px",borderRadius:10,background:"#60a5fa20",color:"#60a5fa",fontWeight:600,marginLeft:4}}>🏢 {item._domainAcc.name}</span>}
+                    {item._tier===3&&<span style={{fontSize:10,padding:"2px 7px",borderRadius:10,background:"#22c55e20",color:"#22c55e",fontWeight:600,marginLeft:4}}>✦ New</span>}
                     <span style={{ fontSize: 11, color: "#9ca3af" }}>{item.date}</span>
                   </div>
                   <div style={{ fontWeight: 700, color: "#f1f0f4", fontSize: 14, marginBottom: 2 }}>{item.subject || "(no subject)"}</div>
@@ -1796,8 +1923,8 @@ function OutlookSyncModal({ data, upd, closeModal, demoMode }) {
                     return (
                       <select value={dec.jobId || ""} onChange={function(e) { setDecision(item.id, { jobId: e.target.value || null }); }}
                         style={{ padding: "6px 10px", borderRadius: 6, border: "1px solid #374151", fontSize: 12, background: "#1e2530", fontFamily: "inherit", color: "#f1f0f4" }}>
-                        <option value="">No job linked</option>
-                        {jobs.map(function(j) { return <option key={j.id} value={j.id}>{j.name}</option>; })}
+                        <option value="" style={{background:"#1a1f2e",color:"#6b7280"}}>No job linked</option>
+                        {jobs.map(function(j) { return <option key={j.id} value={j.id} style={{background:"#1a1f2e",color:"#e2e8f0"}}>{j.name}</option>; })}
                       </select>
                     );
                   })()}
@@ -1809,8 +1936,39 @@ function OutlookSyncModal({ data, upd, closeModal, demoMode }) {
       </div>
 
       {/* Footer */}
+      {/* Claude filtering status */}
+      {claudeFiltering && (
+        <div style={{display:"flex",alignItems:"center",gap:8,padding:"8px 12px",background:"#7c3aed15",border:"1px solid #7c3aed30",borderRadius:8,marginBottom:10,fontSize:12,color:"#a78bfa"}}>
+          <div style={{width:12,height:12,border:"2px solid #a78bfa",borderTopColor:"transparent",borderRadius:"50%",animation:"spin 0.8s linear infinite",flexShrink:0}}/>
+          Claude is filtering non-BD emails in the background...
+        </div>
+      )}
+      {filteredOut.length > 0 && !claudeFiltering && (
+        <div style={{marginBottom:10}}>
+          <button onClick={function(){setShowFiltered(function(p){return !p;});}} style={{fontSize:12,color:"#6b7280",background:"transparent",border:"1px solid #2a2f35",borderRadius:6,padding:"5px 12px",cursor:"pointer",width:"100%",textAlign:"left"}}>
+            {showFiltered?"▲ Hide":"▼ Show"} {filteredOut.length} filtered items (Claude flagged as non-BD)
+          </button>
+          {showFiltered && (
+            <div style={{marginTop:8,display:"flex",flexDirection:"column",gap:6,maxHeight:200,overflowY:"auto"}}>
+              {filteredOut.map(function(item) {
+                return (
+                  <div key={item.id} style={{background:"#13181a",border:"1px solid #1e2530",borderRadius:8,padding:"8px 12px",opacity:0.7}}>
+                    <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:2}}>
+                      <span style={{fontSize:10,padding:"1px 6px",borderRadius:10,background:"#ef444420",color:"#ef4444"}}>{item._label}</span>
+                      <span style={{fontSize:11,color:"#6b7280"}}>{item.date}</span>
+                    </div>
+                    <div style={{fontSize:12,color:"#9ca3af",fontWeight:600}}>{item.subject||"No subject"}</div>
+                    <div style={{fontSize:11,color:"#4b5563"}}>{item._claudeReason}</div>
+                    <button onClick={function(){setFilteredOut(function(p){return p.filter(function(f){return f.id!==item.id;});});setItems(function(p){return p.concat([{...item,_tier:3}]);});}} style={{fontSize:11,color:"#60a5fa",background:"none",border:"none",cursor:"pointer",padding:"2px 0",marginTop:2}}>+ Move to review</button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
       <div style={{ display: "flex", gap: 10, marginTop: 18, alignItems: "center" }}>
-        <button onClick={closeModal} style={{ padding: "8px 18px", background: "transparent", border: "1px solid #d0cdd0", borderRadius: 8, cursor: "pointer", fontSize: 13, color: "#9ca3af" }}>
+        <button onClick={closeModal} style={{ padding: "8px 18px", background: "transparent", border: "1px solid #2a2f35", borderRadius: 8, cursor: "pointer", fontSize: 13, color: "#9ca3af" }}>
           Cancel
         </button>
         <button
@@ -3373,9 +3531,9 @@ function App({demoMode, onSignOut}) {
         }
 
                 if(modal==="contactImport") return <Modal title="Import Contacts from Screenshot" wide onClose={closeModal}><ContactImportModal data={data} upd={upd} closeModal={closeModal} /></Modal>;
-    if(modal==="linkedInImport") return <Modal title="LinkedIn Smart Import" wide onClose={closeModal}><LinkedInImportModal data={data} upd={upd} closeModal={closeModal} /></Modal>;
-    if(modal==="outlookSync") return <Modal title="Outlook Sync" wide onClose={closeModal}><OutlookSyncModal data={data} upd={upd} closeModal={closeModal} demoMode={demoMode} /></Modal>;
-    if(modal==="fabLog") return <Modal title="Log Activity" onClose={closeModal}><QuickLogModal data={data} upd={upd} closeModal={closeModal} /></Modal>;
+    if(modal==="linkedInImport") return <Modal title="LinkedIn Smart Import" wide dark onClose={closeModal}><LinkedInImportModal data={data} upd={upd} closeModal={closeModal} /></Modal>;
+    if(modal==="outlookSync") return <Modal title="Outlook Sync" wide dark onClose={closeModal}><OutlookSyncModal data={data} upd={upd} closeModal={closeModal} demoMode={demoMode} /></Modal>;
+    if(modal==="fabLog") return <Modal title="Log Activity" dark onClose={closeModal}><QuickLogModal data={data} upd={upd} closeModal={closeModal} /></Modal>;
     if(modal==="startCampaign") return <Modal title="Start Touchpoint Campaign" wide onClose={closeModal}><CampaignForm contactId={showCampaignForm} data={data} upd={upd} onClose={closeModal}/></Modal>;
       if(modal==="settings") return (
       <Modal title="Settings" onClose={closeModal}>
@@ -3576,11 +3734,22 @@ function App({demoMode, onSignOut}) {
           const ap = act.date.split("-");
           const d = ap.length===3 ? new Date(parseInt(ap[0]),parseInt(ap[1])-1,parseInt(ap[2])) : new Date(act.date);
           if(d.getFullYear()===year && d.getMonth()===month){
+            // Color by activity type - in-person stands out, emails subtle
+            var actColor = (function() {
+              var t = act.type||"";
+              if(["Lunch","Coffee","Happy Hour","Entertainment"].includes(t)) return "#f97316"; // orange - in person social
+              if(["Site Visit"].includes(t)) return "#22c55e"; // green - on site
+              if(["Phone Call"].includes(t)) return "#a78bfa"; // light purple - calls
+              if(["Proposal"].includes(t)) return "#c8980a"; // gold - proposals
+              if(["LinkedIn Connection Request","LinkedIn Message","LinkedIn Engagement"].includes(t)) return "#0077b5"; // linkedin blue
+              if(["Email"].includes(t)) return "#4b5563"; // dark grey - emails, subtle
+              return "#6b7280"; // default grey
+            })();
             addEvent(d.getDate(), {
               type:"activity",
               label: act.type+": "+con.name,
               sub: (acc.name+(act.notes?" · "+act.notes.slice(0,50):"")),
-              color:"#9ca3af",
+              color: actColor,
               accId:acc.id,
               conId:con.id
             });
@@ -3654,22 +3823,29 @@ function App({demoMode, onSignOut}) {
             <div key={d} style={{textAlign:"center",fontSize:11,color:C.textDim,padding:"6px 0",letterSpacing:"0.06em",textTransform:"uppercase"}}>{d}</div>
           ))}
         </div>
-        <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:2}}>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gridTemplateRows:"repeat(6, 1fr)",gap:4,height:isMobile?"auto":"calc(100vh - 280px)",minHeight:isMobile?480:500}}>
           {cells.map((d,i)=>{
-            if(!d) return <div key={"e"+i} style={{minHeight:90,background:C.surface,borderRadius:6,opacity:0.3}}/>;
+            if(!d) return <div key={"e"+i} style={{background:C.surface,borderRadius:6,opacity:0.3}}/>;
             const events = eventsByDay[d]||[];
             const dots = {};
             events.forEach(function(ev){ dots[ev.color]=true; });
             return (
               <div key={d} onClick={function(){setSelectedDay(d);}}
-                style={{minHeight:90,background:isToday(d)?"#1a1f10":C.surface,border:"1px solid "+(isToday(d)?C.gold+"60":C.border),borderRadius:6,padding:4,cursor:events.length>0?"pointer":"default",transition:"border-color 0.15s"}}
+                style={{background:isToday(d)?"#1a1f10":C.surface,border:"1px solid "+(isToday(d)?C.gold+"60":C.border),borderRadius:6,padding:4,cursor:events.length>0?"pointer":"default",transition:"border-color 0.15s"}}
                 onMouseEnter={function(e){if(events.length>0) e.currentTarget.style.borderColor=C.gold+"80";}}
                 onMouseLeave={function(e){e.currentTarget.style.borderColor=isToday(d)?C.gold+"60":C.border;}}>
-                <div style={{fontSize:12,fontWeight:isToday(d)?700:400,color:isToday(d)?C.gold:C.textDim,marginBottom:4,textAlign:"right",paddingRight:2}}>{d}</div>
+                <div style={{fontSize:13,fontWeight:isToday(d)?700:500,color:isToday(d)?C.gold:C.textDim,marginBottom:4,textAlign:"right",paddingRight:2}}>{d}</div>
                 <div style={{display:"flex",flexDirection:"column",gap:2}}>
-                  {events.slice(0,3).map(function(ev,ei){
+                  {(function(){
+                    // Prioritize non-email events — emails shown last and only if space
+                    var priority = events.filter(function(e){return e.type!=="activity"||(e.label&&!e.label.startsWith("Email:"));});
+                    var emails = events.filter(function(e){return e.type==="activity"&&e.label&&e.label.startsWith("Email:");});
+                    var display = priority.slice(0,3);
+                    if(display.length < 3) display = display.concat(emails.slice(0, 3-display.length));
+                    return display;
+                  })().map(function(ev,ei){
                     return (
-                      <div key={ei} style={{fontSize:10,padding:"2px 5px",borderRadius:4,background:ev.color+"22",color:ev.color,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",fontWeight:500}}>
+                      <div key={ei} style={{fontSize:11,padding:"2px 6px",borderRadius:4,background:ev.color+"22",color:ev.color,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",fontWeight:500}}>
                         {ev.label}
                       </div>
                     );
