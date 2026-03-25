@@ -1326,7 +1326,8 @@ function OutlookSyncModal({ data, upd, closeModal, demoMode }) {
     );
   };
   const [saved,      setSaved]      = React.useState(false);
-  const [tab,        setTab]        = React.useState("all");   // all | email_sent | email_received | calendar
+  const [tab,        setTab]        = React.useState("all");   // all | email_sent | email_received | calendar | skipped
+  const [skippedItems, setSkippedItems] = React.useState([]); // previously skipped items loaded from Supabase
 
   const SYNC_URL = "/.netlify/functions/outlook-sync";
   const AUTH_URL = "/.netlify/functions/outlook-auth";
@@ -1354,6 +1355,9 @@ function OutlookSyncModal({ data, upd, closeModal, demoMode }) {
           if (pidData.processedIds && Array.isArray(pidData.processedIds)) {
             loadedProcessedIds = new Set(pidData.processedIds);
             setProcessedIds(loadedProcessedIds);
+          }
+          if (pidData.skippedItems && Array.isArray(pidData.skippedItems)) {
+            setSkippedItems(pidData.skippedItems);
           }
         }
       } catch(e) {}
@@ -1649,21 +1653,40 @@ function OutlookSyncModal({ data, upd, closeModal, demoMode }) {
     setSaved(true);
 
     // Save only IDs where a decision was actually made (logged, skipped, genLogged)
-    // Undecided items will reappear on next sync
-    const newProcessed = items
-      .filter(function(item) {
-        var dec = decisions[item.id];
-        return dec && (dec.action === "log" || dec.action === "skip" || dec.action === "genLog");
-      })
-      .map(function(item) { return item.id; })
-      .filter(Boolean);
-    if (newProcessed.length > 0) {
+    const decidedItems = items.filter(function(item) {
+      var dec = decisions[item.id];
+      return dec && (dec.action === "log" || dec.action === "skip" || dec.action === "genLog");
+    });
+    const newProcessed = decidedItems.map(function(item) { return item.id; }).filter(Boolean);
+
+    // Save skipped items for later review
+    const newSkipped = items.filter(function(item) {
+      var dec = decisions[item.id];
+      return dec && dec.action === "skip";
+    }).map(function(item) {
+      return {
+        id: item.id,
+        subject: item.subject,
+        date: item.date,
+        _type: item._type,
+        _label: item._label,
+        from: item.from,
+        to: item.to,
+        attendees: item.attendees,
+        preview: item.preview,
+        skippedAt: new Date().toISOString().slice(0,10)
+      };
+    });
+
+    if (newProcessed.length > 0 || newSkipped.length > 0) {
       const allProcessed = [...processedIds, ...newProcessed];
+      const allSkipped = skippedItems.filter(function(s){ return !newProcessed.includes(s.id); }).concat(newSkipped);
       fetch("/.netlify/functions/outlook-sync", {
         method: "POST",
         headers: {"Content-Type":"application/json"},
-        body: JSON.stringify({saveProcessed: true, processedIds: allProcessed})
+        body: JSON.stringify({saveProcessed: true, processedIds: allProcessed, skippedItems: allSkipped})
       }).catch(function(){});
+      setSkippedItems(allSkipped);
     }
   }
 
@@ -1724,8 +1747,8 @@ function OutlookSyncModal({ data, upd, closeModal, demoMode }) {
       {/* Summary bar */}
       <div style={{ background: "#1a1f24", borderRadius: 10, padding: "12px 16px", marginBottom: 16, display: "flex", gap: 24, alignItems: "center", flexWrap: "wrap" }}>
         <div style={{ textAlign: "center" }}>
-          <div style={{ color: "#60a5fa", fontWeight: 700, fontSize: 22 }}>{items.length}</div>
-          <div style={{ color: "#9ca3af", fontSize: 10, textTransform: "uppercase", letterSpacing: "0.07em" }}>Items Pulled</div>
+          <div style={{ color: "#60a5fa", fontWeight: 700, fontSize: 22 }}>{items.length}{claudeFiltering&&<span style={{fontSize:12,marginLeft:4}}>⏳</span>}</div>
+          <div style={{ color: "#9ca3af", fontSize: 10, textTransform: "uppercase", letterSpacing: "0.07em" }}>Needs Review</div>
         </div>
         <div style={{ textAlign: "center" }}>
           <div style={{ color: "#22c55e", fontWeight: 700, fontSize: 22 }}>{matched}</div>
@@ -1801,7 +1824,7 @@ function OutlookSyncModal({ data, upd, closeModal, demoMode }) {
 
       {/* Tab filter */}
       <div style={{ display: "flex", borderBottom: "1px solid #2a2f35", marginBottom: 16 }}>
-        {[["all","All"],["email_sent","Sent"],["email_received","Received"],["calendar","Calendar"]].map(function(pair) {
+        {[["all","All"],["email_sent","Sent"],["email_received","Received"],["calendar","Calendar"],["skipped","Skipped"+(skippedItems.length>0?" ("+skippedItems.length+")":"")]].map(function(pair) {
           var active = tab === pair[0];
           return (
             <button key={pair[0]} onClick={function() { setTab(pair[0]); }}
@@ -1813,14 +1836,14 @@ function OutlookSyncModal({ data, upd, closeModal, demoMode }) {
       </div>
 
       {/* Items list */}
-      <div style={{ maxHeight: 420, overflowY: "auto", paddingRight: 4 }}>
+      {tab !== "skipped" && <div style={{ maxHeight: 420, overflowY: "auto", paddingRight: 4 }}>
         {filtered.length === 0 && (
           <div style={{ color: "#9ca3af", textAlign: "center", padding: "32px 0", fontSize: 13 }}>No items in this category.</div>
         )}
         {filtered.map(function(item) {
           var dec = decisions[item.id] || {};
           var isLogging = dec.action === "log" && dec.contactId;
-          var borderColor = isLogging ? "#22c55e60" : dec.action === "skip" ? "#ffffff15" : item._tier===2?"#60a5fa30":"#2a2f35";
+          var borderColor = isLogging ? "#22c55e60" : dec.action === "skip" ? "#ffffff15" : "#2a2f35";
 
           // People list for display
           var people = [];
@@ -1837,8 +1860,7 @@ function OutlookSyncModal({ data, upd, closeModal, demoMode }) {
                     <span style={{ background: item._color + "22", color: item._color, border: "1px solid " + item._color + "50", borderRadius: 6, padding: "2px 8px", fontSize: 11, fontWeight: 600 }}>
                       {item._label}
                     </span>
-                    {item._tier===2&&item._domainAcc&&<span style={{fontSize:10,padding:"2px 7px",borderRadius:10,background:"#60a5fa20",color:"#60a5fa",fontWeight:600,marginLeft:4}}>🏢 {item._domainAcc.name}</span>}
-                    {item._tier===3&&<span style={{fontSize:10,padding:"2px 7px",borderRadius:10,background:"#22c55e20",color:"#22c55e",fontWeight:600,marginLeft:4}}>✦ New</span>}
+
                     <span style={{ fontSize: 11, color: "#9ca3af" }}>{item.date}</span>
                   </div>
                   <div style={{ fontWeight: 700, color: "#f1f0f4", fontSize: 14, marginBottom: 2 }}>{item.subject || "(no subject)"}</div>
@@ -1954,9 +1976,56 @@ function OutlookSyncModal({ data, upd, closeModal, demoMode }) {
             </div>
           );
         })}
-      </div>
+      </div>}
 
       {/* Footer */}
+      {/* Skipped items review tab */}
+      {tab === "skipped" && (
+        <div>
+          {skippedItems.length === 0 && (
+            <div style={{textAlign:"center",color:"#6b7280",fontSize:13,padding:"40px 0"}}>No skipped items yet.</div>
+          )}
+          <div style={{display:"flex",flexDirection:"column",gap:8}}>
+            {skippedItems.map(function(item) {
+              var who = item._type === "email_sent"
+                ? "To: " + (item.to||[]).map(function(t){return t.name;}).join(", ")
+                : item._type === "email_received"
+                ? "From: " + (item.from ? item.from.name : "unknown")
+                : "Calendar: " + (item.attendees||[]).map(function(a){return a.name;}).join(", ");
+              return (
+                <div key={item.id} style={{background:"#13181a",border:"1px solid #2a2f35",borderRadius:10,padding:"12px 14px"}}>
+                  <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
+                    <span style={{fontSize:11,padding:"2px 8px",borderRadius:10,background:"#6b728020",color:"#9ca3af"}}>{item._label}</span>
+                    <span style={{fontSize:11,color:"#6b7280"}}>{item.date}</span>
+                    <span style={{fontSize:11,color:"#4b5563",marginLeft:"auto"}}>Skipped {item.skippedAt}</span>
+                  </div>
+                  <div style={{fontWeight:600,fontSize:13,color:"#f1f0f4",marginBottom:2}}>{item.subject||"No subject"}</div>
+                  <div style={{fontSize:12,color:"#6b7280",marginBottom:8}}>{who}</div>
+                  <div style={{display:"flex",gap:8}}>
+                    <button
+                      onClick={function(){
+                        // Move back to main review list
+                        var restored = {...item, _emails: item.from ? [item.from.email] : (item.to||[]).map(function(t){return t.email;})};
+                        setItems(function(p){ return [restored].concat(p); });
+                        setSkippedItems(function(p){ return p.filter(function(s){return s.id!==item.id;}); });
+                        setTab("all");
+                      }}
+                      style={{padding:"4px 12px",fontSize:12,background:"#7c3aed22",border:"1px solid #7c3aed60",borderRadius:6,cursor:"pointer",color:"#a78bfa",fontWeight:600}}
+                    >↩ Move to Review</button>
+                    <button
+                      onClick={function(){
+                        setSkippedItems(function(p){ return p.filter(function(s){return s.id!==item.id;}); });
+                      }}
+                      style={{padding:"4px 12px",fontSize:12,background:"transparent",border:"1px solid #2a2f35",borderRadius:6,cursor:"pointer",color:"#6b7280"}}
+                    >Remove</button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* Claude filtering status */}
       {claudeFiltering && (
         <div style={{display:"flex",alignItems:"center",gap:8,padding:"8px 12px",background:"#7c3aed15",border:"1px solid #7c3aed30",borderRadius:8,marginBottom:10,fontSize:12,color:"#a78bfa"}}>
@@ -5006,7 +5075,7 @@ function App({demoMode, onSignOut}) {
           <div style={{display:"flex",alignItems:"center",gap:10}}>
             <button style={{...btn(null,C.textLo,C.border2),gap:6}} onClick={()=>setModal("globalSearch")}>Search</button>
             {alerts.length>0&&<span style={{...pill(C.amber),display:"inline-flex",alignItems:"center",gap:5,cursor:"pointer"}} onClick={()=>setView("dash")}>Overdue: {alerts.length}</span>}
-            {winRate!==null&&<span style={{fontSize:12,color:C.textDim,borderLeft:`1px solid ${C.border}`,paddingLeft:10}}>{winRate}% win rate</span>}
+            
             <span style={{color:C.textDim,fontSize:13,borderLeft:`1px solid ${C.border}`,paddingLeft:10}}>{userName}</span>
             <button onClick={exportData} style={{...btn(null,exportFlash?C.green:C.blue,exportFlash?C.green+"60":C.border2),minWidth:80,justifyContent:"center",transition:"all 0.3s"}}>{exportFlash?"✓ Saved!":"↓ Export"}</button>
             {syncStatus==="saving"&&<span style={{fontSize:11,color:C.textDim}}>Syncing…</span>}
