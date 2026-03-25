@@ -1625,9 +1625,10 @@ function OutlookSyncModal({ data, upd, closeModal, demoMode }) {
         var notes = item.subject || "";
         if (item.preview && item.preview.trim()) notes += (notes ? " — " : "") + item.preview.trim();
 
-        // Avoid logging the exact same date+type combo twice
+        // Avoid duplicates — check by Outlook item ID first, then by date+subject
         var isDupe = con.activities.some(function(a) {
-          return a.date === item.date && a.type === dec.type && a.notes && a.notes.includes(item.subject || "");
+          if(a.outlookId && a.outlookId === item.id) return true;
+          return a.fromOutlook && a.date === item.date && a.notes && item.subject && a.notes.includes(item.subject.slice(0,40));
         });
         if (isDupe) return;
 
@@ -1638,7 +1639,8 @@ function OutlookSyncModal({ data, upd, closeModal, demoMode }) {
           notes:    notes.slice(0, 500),
           followUp: null,
           jobId:    dec.jobId || null,
-          fromOutlook: true
+          fromOutlook: true,
+          outlookId: item.id || null
         });
       });
       return d;
@@ -3605,6 +3607,27 @@ function App({demoMode, onSignOut}) {
         </label>
         <div style={divL}/>
         <div style={{fontFamily:C.serif,fontSize:16,color:"#ef4444",marginBottom:6}}>Danger Zone</div>
+        <div style={{fontSize:12,color:C.textDim,marginBottom:6}}>Remove only activities that were imported via Outlook Sync. Manually logged activities are kept. Use this before a clean re-sync.</div>
+        <button
+          style={{...btn(null,"#f97316","#f9731620"),width:"100%",justifyContent:"center",marginBottom:10}}
+          onClick={()=>{
+            if(window.confirm("This will remove all Outlook-synced activities from every contact. Manually logged activities are unaffected. Continue?")) {
+              var count = 0;
+              upd(d=>{
+                d.accounts.forEach(acc=>{
+                  acc.contacts.forEach(con=>{
+                    var before = (con.activities||[]).length;
+                    con.activities = (con.activities||[]).filter(a=>!a.fromOutlook);
+                    count += before - con.activities.length;
+                  });
+                });
+                return d;
+              });
+              closeModal();
+              alert("✅ Removed Outlook-synced activities. Run a fresh sync to re-import.");
+            }
+          }}
+        >🔄 Clear Outlook Activities</button>
         <div style={{fontSize:12,color:C.textDim,marginBottom:10}}>Permanently delete all accounts, contacts, jobs, and activities. This cannot be undone. Your settings and password will be kept.</div>
         <button
           style={{...btn(null,"#ef4444","#ef444420"),width:"100%",justifyContent:"center"}}
@@ -3811,12 +3834,7 @@ function App({demoMode, onSignOut}) {
           <span style={{fontFamily:C.serif,fontSize:20,color:C.textHi,minWidth:180,textAlign:"center"}}>{monthNames[month]} {year}</span>
           <button onClick={()=>setCalMonth(p=>{ let m=p.month+1,y=p.year; if(m>11){m=0;y++;} return {year:y,month:m}; })} style={{...btn(null,C.textLo,C.border2),padding:"5px 12px"}}>›</button>
           <button onClick={()=>{ const n=new Date(); setCalMonth({year:n.getFullYear(),month:n.getMonth()}); }} style={{...btn(null,C.gold,C.border2),padding:"5px 12px",fontSize:12}}>Today</button>
-          <div style={{display:"flex",alignItems:"center",gap:12,marginLeft:"auto",fontSize:11,color:C.textDim,flexWrap:"wrap"}}>
-            <span style={{display:"flex",alignItems:"center",gap:4}}><span style={{width:8,height:8,borderRadius:"50%",background:"#3b82f6",display:"inline-block"}}></span>Job Due</span>
-            <span style={{display:"flex",alignItems:"center",gap:4}}><span style={{width:8,height:8,borderRadius:"50%",background:"#22c55e",display:"inline-block"}}></span>Follow-up</span>
-            <span style={{display:"flex",alignItems:"center",gap:4}}><span style={{width:8,height:8,borderRadius:"50%",background:"#c8980a",display:"inline-block"}}></span>Campaign</span>
-            <span style={{display:"flex",alignItems:"center",gap:4}}><span style={{width:8,height:8,borderRadius:"50%",background:"#7c3aed",display:"inline-block"}}></span>Outreach</span>
-          </div>
+          
         </div>
         <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:2,marginBottom:4}}>
           {["Sun","Mon","Tue","Wed","Thu","Fri","Sat"].map(d=>(
@@ -4394,11 +4412,6 @@ function App({demoMode, onSignOut}) {
                 </div>
                 );
               })}
-              {winRate!==null&&<div style={{background:C.surface,border:`1px solid ${C.blue}30`,borderTop:`3px solid ${C.blue}60`,borderRadius:10,padding:"11px 18px",display:"flex",flexDirection:"column",alignItems:"center",minWidth:100,flex:"1 1 auto"}}>
-                <div style={{fontWeight:700,fontSize:18,color:C.blue,lineHeight:1}}>{winRate}%</div>
-                <div style={{fontSize:11,color:C.blue,opacity:.6,marginTop:3}}>{decidedJobs.filter(j=>j.status==="Won").length} of {decidedJobs.length}</div>
-                <div style={{fontSize:10,color:C.textDim,marginTop:4,textTransform:"uppercase",letterSpacing:"0.07em"}}>Win Rate</div>
-              </div>}
             </div>
 
 
