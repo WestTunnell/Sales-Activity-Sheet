@@ -69,6 +69,13 @@ exports.handler = async (event, context) => {
           payload: JSON.stringify(body.processedIds),
           updated_at: new Date().toISOString()
         });
+        if (body.skippedItems && Array.isArray(body.skippedItems)) {
+          await sb.from("app_data").upsert({
+            id: "outlook_skipped_items",
+            payload: JSON.stringify(body.skippedItems),
+            updated_at: new Date().toISOString()
+          });
+        }
         return { statusCode: 200, headers, body: JSON.stringify({ ok: true }) };
       }
     }
@@ -81,7 +88,13 @@ exports.handler = async (event, context) => {
         .eq("id", "outlook_processed_ids")
         .single();
       const processedIds = pidRow ? JSON.parse(pidRow.payload) : [];
-      return { statusCode: 200, headers, body: JSON.stringify({ processedIds }) };
+      const { data: skipRow } = await sb
+        .from("app_data")
+        .select("payload")
+        .eq("id", "outlook_skipped_items")
+        .single();
+      const skippedItems = skipRow ? JSON.parse(skipRow.payload) : [];
+      return { statusCode: 200, headers, body: JSON.stringify({ processedIds, skippedItems }) };
     }
 
     // ── GET: full sync ────────────────────────────────────────────────────────
