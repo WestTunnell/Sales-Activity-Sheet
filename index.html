@@ -1284,6 +1284,7 @@ function OutlookSyncModal({ data, upd, closeModal, demoMode }) {
   const [connected,  setConnected]  = React.useState(null);   // null | true | false
   const [items,      setItems]      = React.useState([]);      // all fetched items
   const [decisions,  setDecisions]  = React.useState({});     // id -> { action, contactId, accId, jobId, type }
+  const [itemDates,   setItemDates]   = React.useState({});     // id -> custom date override
   const [processedIds, setProcessedIds] = React.useState(new Set()); // IDs already dealt with
   const [openDropdown, setOpenDropdown] = React.useState(null);
   const [filteredOut, setFilteredOut] = React.useState([]); // Tier 4 - Claude filtered
@@ -1608,7 +1609,7 @@ function OutlookSyncModal({ data, upd, closeModal, demoMode }) {
           if (!d.generalActivities) d.generalActivities = [];
           d.generalActivities.unshift({
             id: Math.random().toString(36).slice(2,9),
-            type: item._type === "calendar" ? "Market Event" : "Email",
+            type: dec.genLogType || (item._type === "calendar" ? "Coffee" : "Email"),
             date: item.date || new Date().toISOString().slice(0,10),
             notes: (item.subject||"No subject") + (item.preview ? " — " + item.preview.slice(0,100) : ""),
             createdAt: new Date().toISOString()
@@ -1635,7 +1636,7 @@ function OutlookSyncModal({ data, upd, closeModal, demoMode }) {
         con.activities.unshift({
           id:       Math.random().toString(36).slice(2, 9),
           type:     dec.type || "Email",
-          date:     item.date || new Date().toISOString().slice(0, 10),
+          date:     (itemDates[item.id] || item.date) || new Date().toISOString().slice(0, 10),
           notes:    notes.slice(0, 500),
           followUp: null,
           jobId:    dec.jobId || null,
@@ -1860,10 +1861,20 @@ function OutlookSyncModal({ data, upd, closeModal, demoMode }) {
                     style={{ padding: "3px 10px", fontSize: 11, borderRadius: 6, cursor: "pointer", border: "1px solid " + (dec.action === "skip" ? "#aaa8b080" : "#2a2f35"), background: dec.action === "skip" ? "#aaa8b022" : "transparent", color: "#9ca3af" }}>
                     Skip
                   </button>
-                  <button onClick={function() { setDecision(item.id, { action: dec.action === "genLog" ? null : "genLog" }); }}
+                  <button onClick={function() { setDecision(item.id, { action: dec.action === "genLog" ? null : "genLog", genLogType: dec.genLogType || (item._type === "calendar" ? "Coffee" : "Email") }); }}
                     style={{ padding: "3px 10px", fontSize: 11, borderRadius: 6, cursor: "pointer", border: "1px solid " + (dec.action === "genLog" ? "#7c3aed80" : "#2a2f35"), background: dec.action === "genLog" ? "#7c3aed22" : "transparent", color: dec.action === "genLog" ? "#a78bfa" : "#9ca3af", fontWeight: dec.action === "genLog" ? 700 : 400 }}>
                     {dec.action === "genLog" ? "✓ General Log" : "General Log"}
                   </button>
+                  {dec.action === "genLog" && (
+                    <select
+                      value={dec.genLogType || (item._type === "calendar" ? "Coffee" : "Email")}
+                      onChange={function(e){ setDecision(item.id, {genLogType: e.target.value}); }}
+                      style={{padding:"3px 8px",borderRadius:6,border:"1px solid #374151",background:"#1a1f2e",color:"#e2e8f0",fontSize:11,fontFamily:"inherit"}}>
+                      {["Email","Phone Call","Coffee","Lunch","Happy Hour","Site Visit","Market Event","LinkedIn Message","Other"].map(function(t){
+                        return <option key={t} value={t} style={{background:"#1a1f2e",color:"#e2e8f0"}}>{t}</option>;
+                      })}
+                    </select>
+                  )}
                 </div>
               </div>
 
@@ -1917,6 +1928,14 @@ function OutlookSyncModal({ data, upd, closeModal, demoMode }) {
                       return <option key={t} value={t} style={{background:"#1a1f2e",color:"#e2e8f0"}}>{t}</option>;
                     })}
                   </select>
+                  {/* Date override */}
+                  <input
+                    type="date"
+                    value={itemDates[item.id] || item.date || ""}
+                    onChange={function(e) { setItemDates(function(p){return Object.assign({},p,{[item.id]:e.target.value});}); }}
+                    style={{ padding: "6px 8px", borderRadius: 6, border: "1px solid #374151", fontSize: 12, background: "#1a1f2e", color: "#e2e8f0", fontFamily: "inherit" }}
+                    title="Override activity date (e.g. for future events)"
+                  />
                   {/* Optional job link */}
                   {dec.accId && (function() {
                     var acc = data.accounts.find(function(a) { return a.id === dec.accId; });
@@ -2688,7 +2707,7 @@ function App({demoMode, onSignOut}) {
   })));
 
   const pipeSummary = acc => {
-    const active = acc.jobs.filter(j=>!["Won","Lost"].includes(j.status)).length;
+    const active = acc.jobs.filter(j=>["Active Pursuit","Proposal Pending"].includes(j.status)).length;
     const won    = acc.jobs.filter(j=>j.status==="Won").length;
     const total  = acc.jobs.length;
     // For each job, get best value: last proposal amount, or estimatedValue
@@ -3607,18 +3626,15 @@ function App({demoMode, onSignOut}) {
         </label>
         <div style={divL}/>
         <div style={{fontFamily:C.serif,fontSize:16,color:"#ef4444",marginBottom:6}}>Danger Zone</div>
-        <div style={{fontSize:12,color:C.textDim,marginBottom:6}}>Remove only activities that were imported via Outlook Sync. Manually logged activities are kept. Use this before a clean re-sync.</div>
+        <div style={{fontSize:12,color:C.textDim,marginBottom:6}}>Remove only activities flagged as imported via Outlook Sync. Manually logged activities are kept.</div>
         <button
-          style={{...btn(null,"#f97316","#f9731620"),width:"100%",justifyContent:"center",marginBottom:10}}
+          style={{...btn(null,"#f97316","#f9731620"),width:"100%",justifyContent:"center",marginBottom:8}}
           onClick={()=>{
             if(window.confirm("This will remove all Outlook-synced activities from every contact. Manually logged activities are unaffected. Continue?")) {
-              var count = 0;
               upd(d=>{
                 d.accounts.forEach(acc=>{
                   acc.contacts.forEach(con=>{
-                    var before = (con.activities||[]).length;
                     con.activities = (con.activities||[]).filter(a=>!a.fromOutlook);
-                    count += before - con.activities.length;
                   });
                 });
                 return d;
@@ -3628,6 +3644,25 @@ function App({demoMode, onSignOut}) {
             }
           }}
         >🔄 Clear Outlook Activities</button>
+        <div style={{fontSize:12,color:C.textDim,marginBottom:6}}>Remove ALL activities from every contact — including manually logged ones. Use this for a completely clean slate before re-syncing.</div>
+        <button
+          style={{...btn(null,"#ef4444","#ef444420"),width:"100%",justifyContent:"center",marginBottom:10}}
+          onClick={()=>{
+            if(window.confirm("This will permanently delete ALL activities from every contact. This cannot be undone. Continue?")) {
+              if(window.confirm("Last chance — delete all activities?")) {
+                upd(d=>{
+                  d.accounts.forEach(acc=>{
+                    acc.contacts.forEach(con=>{ con.activities=[]; });
+                  });
+                  d.generalActivities=[];
+                  return d;
+                });
+                closeModal();
+                alert("✅ All activities cleared. Run a fresh sync to rebuild your calendar.");
+              }
+            }
+          }}
+        >🗑 Clear All Activities</button>
         <div style={{fontSize:12,color:C.textDim,marginBottom:10}}>Permanently delete all accounts, contacts, jobs, and activities. This cannot be undone. Your settings and password will be kept.</div>
         <button
           style={{...btn(null,"#ef4444","#ef444420"),width:"100%",justifyContent:"center"}}
