@@ -142,18 +142,37 @@ exports.handler = async (event, context) => {
       source: "email_sent"
     }));
 
-    // Fetch received emails across ALL folders (inbox + job folders)
+    // Fetch received emails - exclude deleted items and junk by checking folder names
     const myEmail = (process.env.OUTLOOK_USER_EMAIL || 'west@fairco.ca').toLowerCase();
+
+    // Get folder IDs for DeletedItems and JunkEmail to exclude them
+    let excludeFolderIds = new Set();
+    try {
+      const foldersRes = await fetch(
+        "https://graph.microsoft.com/v1.0/me/mailFolders?$select=id,displayName&$top=50",
+        { headers: graphHeaders }
+      );
+      const foldersData = await foldersRes.json();
+      (foldersData.value || []).forEach(f => {
+        const name = (f.displayName || "").toLowerCase();
+        if (name.includes("deleted") || name.includes("junk") || name.includes("spam") || name.includes("trash")) {
+          excludeFolderIds.add(f.id);
+        }
+      });
+    } catch(e) {}
+
     const inboxRes = await fetch(
       `https://graph.microsoft.com/v1.0/me/messages`
       + `?$filter=receivedDateTime ge ${sinceISO} and isDraft eq false`
-      + `&$select=id,subject,receivedDateTime,from,bodyPreview`
-      + `&$top=100&$orderby=receivedDateTime desc`,
+      + `&$select=id,subject,receivedDateTime,from,bodyPreview,parentFolderId`
+      + `&$top=150&$orderby=receivedDateTime desc`,
       { headers: graphHeaders }
     );
     const inboxData = await inboxRes.json();
     const received = (inboxData.value || [])
       .filter(m => {
+        // Exclude deleted/junk folders
+        if (m.parentFolderId && excludeFolderIds.has(m.parentFolderId)) return false;
         const sender = m.from && m.from.emailAddress && m.from.emailAddress.address;
         return sender && sender.toLowerCase() !== myEmail;
       })
