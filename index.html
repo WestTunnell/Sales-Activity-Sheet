@@ -1546,11 +1546,22 @@ function OutlookSyncModal({ data, upd, closeModal, demoMode }) {
         return (i+j) + ". [" + item._type + "] " + (item.subject||"No subject") + " | " + who;
       }).join("\n");
 
-      var prompt = "You are filtering emails/calendar events for West Tunnell, BD at Fairco Inc. (commercial landscape construction in AZ/CA/NV).\n" +
-        "Keep items relevant to BD: GCs, developers, owners, engineers, project managers, estimators, construction firms, land developers.\n" +
-        "Filter OUT: newsletters, marketing emails, shopping/receipts, personal emails, spam, unsubscribe, noreply, LinkedIn notifications, bank/finance, healthcare, software/SaaS.\n\n" +
-        "For each item return ONLY a JSON array: [{\"idx\": number, \"keep\": true/false, \"reason\": \"brief reason\"}]\n\n" +
-        "Items:\n" + itemLines + "\n\nReturn ONLY the JSON array.";
+      var prompt = "You are filtering emails/calendar events for West Tunnell, BD at Fairco Inc. (commercial landscape construction in AZ/CA/NV).\n\n" +
+        "KEEP only if clearly from a GC, developer, owner, land developer, civil engineer, project manager, estimator, or construction firm.\n\n" +
+        "FILTER OUT (be aggressive):\n" +
+        "- Newsletters, marketing, promotions, unsubscribe\n" +
+        "- Shopping, receipts, order confirmations, shipping\n" +
+        "- Banks, insurance, finance, healthcare\n" +
+        "- Software/SaaS/tech companies\n" +
+        "- Social media notifications (LinkedIn, Facebook etc)\n" +
+        "- noreply, donotreply, automated system emails\n" +
+        "- Personal emails unrelated to construction/development\n" +
+        "- Spam, phishing, prize notifications\n" +
+        "- Government/political/nonprofit unless construction-related\n" +
+        "- Any email where the sender company is clearly not in the construction/development industry\n\n" +
+        "When in doubt, filter it out. West can review filtered items separately.\n\n" +
+        "For each item return ONLY a JSON array: [{\"idx\": number, \"keep\": true/false, \"reason\": \"one word reason\"}]\n\n" +
+        "Items:\n" + itemLines + "\n\nReturn ONLY the JSON array, no other text.";
 
       try {
         var res = await fetch("https://api.anthropic.com/v1/messages", {
