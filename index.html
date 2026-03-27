@@ -1558,7 +1558,9 @@ function OutlookSyncModal({ data, upd, closeModal, demoMode }) {
         "- Personal emails unrelated to construction/development\n" +
         "- Spam, phishing, prize notifications\n" +
         "- Government/political/nonprofit unless construction-related\n" +
-        "- Any email where the sender company is clearly not in the construction/development industry\n\n" +
+        "- Any email where the sender company is clearly not in the construction/development industry\n" +
+        "- Recurring market events, trade shows, association meetings, industry mixers with large groups\n" +
+        "- Event invites where West is clearly one of many attendees with no personal BD connection\n\n" +
         "When in doubt, filter it out. West can review filtered items separately.\n\n" +
         "For each item return ONLY a JSON array: [{\"idx\": number, \"keep\": true/false, \"reason\": \"one word reason\"}]\n\n" +
         "Items:\n" + itemLines + "\n\nReturn ONLY the JSON array, no other text.";
