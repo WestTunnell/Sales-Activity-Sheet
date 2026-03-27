@@ -130,17 +130,19 @@ exports.handler = async (event, context) => {
       { headers: graphHeaders }
     );
     const emailData = await emailRes.json();
-    const emails = (emailData.value || []).map(m => ({
-      id: m.id,
-      subject: m.subject,
-      date: m.sentDateTime ? m.sentDateTime.slice(0, 10) : null,
-      to: (m.toRecipients || []).map(r => ({
-        name: r.emailAddress.name,
-        email: r.emailAddress.address
-      })),
-      preview: m.bodyPreview ? m.bodyPreview.slice(0, 200) : "",
-      source: "email_sent"
-    }));
+    const emails = (emailData.value || [])
+      .filter(m => (m.toRecipients || []).length <= 5) // skip mass emails
+      .map(m => ({
+        id: m.id,
+        subject: m.subject,
+        date: m.sentDateTime ? m.sentDateTime.slice(0, 10) : null,
+        to: (m.toRecipients || []).map(r => ({
+          name: r.emailAddress.name,
+          email: r.emailAddress.address
+        })),
+        preview: m.bodyPreview ? m.bodyPreview.slice(0, 200) : "",
+        source: "email_sent"
+      }));
 
     // Fetch received emails - exclude deleted items and junk by checking folder names
     const myEmail = (process.env.OUTLOOK_USER_EMAIL || 'west@fairco.ca').toLowerCase();
@@ -200,7 +202,14 @@ exports.handler = async (event, context) => {
       { headers: graphHeaders }
     );
     const calData = await calRes.json();
-    const events = (calData.value || []).map(e => ({
+    const events = (calData.value || [])
+      .filter(e => {
+        const attendeeCount = (e.attendees || []).length;
+        // Skip large group events (>10 attendees) - likely market events/trade shows
+        // but keep events with 0 attendees (solo blocks) or small meetings
+        return attendeeCount <= 10;
+      })
+      .map(e => ({
       id: e.id,
       subject: e.subject,
       date: e.start && e.start.dateTime ? (function() {
