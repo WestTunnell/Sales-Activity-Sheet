@@ -3992,12 +3992,8 @@ function App({demoMode, onSignOut}) {
               {dayEvents.map(function(ev, i) {
                 var canNav = ev.accId&&(ev.conId||ev.jobId);
                 return (
-                  <div key={i} style={{padding:"12px 14px",background:"#1a1f24",border:"1px solid "+ev.color+"50",borderRadius:10,cursor:canNav?"pointer":"default",transition:"border-color 0.15s"}}
-                    onClick={function(){
-                      if(ev.accId&&ev.conId){ setSA(ev.accId); setSC(ev.conId); setAccTab&&setAccTab("contacts"); setView("contact"); setSelectedDay(null); }
-                      else if(ev.accId&&ev.jobId){ setSA(ev.accId); setSJ(ev.jobId); setView("job"); setSelectedDay(null); }
-                    }}
-                    onMouseEnter={function(e){if(canNav) e.currentTarget.style.borderColor=ev.color+"90";}}
+                  <div key={i} style={{padding:"12px 14px",background:"#1a1f24",border:"1px solid "+ev.color+"50",borderRadius:10,transition:"border-color 0.15s"}}
+                    onMouseEnter={function(e){e.currentTarget.style.borderColor=ev.color+"90";}}
                     onMouseLeave={function(e){e.currentTarget.style.borderColor=ev.color+"50";}}
                   >
                     <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:4}}>
@@ -4005,7 +4001,23 @@ function App({demoMode, onSignOut}) {
                         <span style={{fontSize:14}}>{typeIcons[ev.type]||"•"}</span>
                         <span style={{fontSize:11,color:ev.color,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.05em"}}>{typeLabels[ev.type]||ev.type}</span>
                       </div>
-                      {canNav && <span style={{fontSize:11,color:ev.color}}>Open →</span>}
+                      <div style={{display:"flex",gap:6,alignItems:"center"}}>
+                        {ev.type==="activity"&&ev.accId&&ev.conId&&(
+                          <button onClick={function(e){
+                            e.stopPropagation();
+                            // Find the actual activity to edit
+                            var acc = data.accounts.find(function(a){return a.id===ev.accId;});
+                            var con = acc&&acc.contacts.find(function(c){return c.id===ev.conId;});
+                            var act = con&&(con.activities||[]).find(function(a){return a.date===selectedDate&&(ev.label.includes(a.type)||a.type===ev.label.split(":")[0]);});
+                            if(act){ setSA(ev.accId); setSC(ev.conId); setForm({...act,followUp:act.followUp||""}); setModal("editAct"); setSelectedDay(null); }
+                          }} style={{fontSize:11,color:"#9ca3af",background:"none",border:"1px solid #2a2f35",borderRadius:5,padding:"2px 8px",cursor:"pointer"}}>Edit</button>
+                        )}
+                        {canNav&&<button onClick={function(e){
+                          e.stopPropagation();
+                          if(ev.accId&&ev.conId){ setSA(ev.accId); setSC(ev.conId); setAccTab&&setAccTab("contacts"); setView("contact"); setSelectedDay(null); }
+                          else if(ev.accId&&ev.jobId){ setSA(ev.accId); setSJ(ev.jobId); setView("job"); setSelectedDay(null); }
+                        }} style={{fontSize:11,color:ev.color,background:"none",border:"none",cursor:"pointer",padding:"2px 4px"}}>Open →</button>}
+                      </div>
                     </div>
                     <div style={{fontSize:14,fontWeight:600,color:"#f1f0f4",marginBottom:ev.sub?4:0}}>{ev.label}</div>
                     {ev.sub && <div style={{fontSize:12,color:"#9ca3af",lineHeight:1.4}}>{ev.sub}</div>}
@@ -4515,17 +4527,15 @@ function App({demoMode, onSignOut}) {
             </div>
             {showGenLog&&(
               <div style={{background:C.bg,border:"1px solid "+C.border,borderRadius:10,padding:"14px 16px",marginBottom:14}}>
-                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
-                  <div>
-                    <div style={{fontSize:11,color:C.textDim,marginBottom:4}}>Type</div>
-                    <select value={genLogForm.type} onChange={e=>setGenLogForm(f=>({...f,type:e.target.value,otherType:""}))} style={{...inp,width:"100%"}}>
-                      {(data.settings&&data.settings.genLogTypes ? data.settings.genLogTypes : ["LinkedIn","Cold Email","Networking Event","Trade Show","Cold Call","Referral Outreach","Other"]).map(t=>(<option key={t}>{t}</option>))}
-                    </select>
-                  </div>
-                  <div style={{display:genLogForm.type==="Other"?"block":"none"}}>
-                      <div style={{fontSize:11,color:C.textDim,marginBottom:4}}>Describe</div>
-                      <textarea value={genLogForm.otherType} onChange={e=>setGenLogForm(f=>({...f,otherType:e.target.value}))} placeholder="e.g. Sent thank you card" style={{...inp,width:"100%",minHeight:38,resize:"vertical"}}/>
-                    </div>
+                <div style={{marginBottom:10}}>
+                  <div style={{fontSize:11,color:C.textDim,marginBottom:4}}>Type</div>
+                  <select value={genLogForm.type} onChange={e=>setGenLogForm(f=>({...f,type:e.target.value,otherType:""}))} style={{...inp,width:"100%"}}>
+                    {(data.settings&&data.settings.genLogTypes ? data.settings.genLogTypes : ["LinkedIn","Cold Email","Networking Event","Trade Show","Cold Call","Referral Outreach","Other"]).map(t=>(<option key={t}>{t}</option>))}
+                  </select>
+                </div>
+                <div style={{display:genLogForm.type==="Other"?"block":"none",marginBottom:10}}>
+                  <div style={{fontSize:11,color:C.textDim,marginBottom:4}}>Describe</div>
+                  <textarea value={genLogForm.otherType} onChange={e=>setGenLogForm(f=>({...f,otherType:e.target.value}))} placeholder="e.g. Sent thank you card" style={{...inp,width:"100%",minHeight:38,resize:"vertical"}}/>
                 </div>
                 <div style={{marginBottom:10}}>
                   <div style={{fontSize:11,color:C.textDim,marginBottom:4}}>Notes</div>
