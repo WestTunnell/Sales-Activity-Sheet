@@ -917,8 +917,7 @@ function ContactImportModal({data, upd, closeModal}) {
                           return <option key={a.id} value={a.id} style={{background:"#1e2530",color:"#e2e8f0"}}>{a.name}</option>;
                         })}
                       </select>
-                      {(r.targetAccId==="new"||!r.targetAccId) && (
-                        <div style={{marginTop:8,display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+                      <div style={{display:(r.targetAccId==="new"||!r.targetAccId)?"flex":"none",marginTop:8,gap:8,alignItems:"center",flexWrap:"wrap"}}>
                           <input
                             value={r.newAccName!==undefined ? r.newAccName : (extracted.company||"")}
                             onChange={function(e){updateResolved(i,{newAccName:e.target.value});}}
@@ -935,7 +934,6 @@ function ContactImportModal({data, upd, closeModal}) {
                             <option value={3} style={{background:"#1e2530",color:"#e2e8f0"}}>T3 Long Game</option>
                           </select>
                         </div>
-                      )}
                     </div>
                   )}
                 </div>
@@ -960,7 +958,7 @@ function ContactImportModal({data, upd, closeModal}) {
 
 
   // ── QuickLogModal: log activity from anywhere via FAB ─────────────────────
-  const QuickLogModal = ({data, upd, closeModal}) => {
+  const QuickLogModal = ({data, upd, closeModal, initialDate}) => {
     const allContacts = [];
     (data.accounts||[]).forEach(acc => {
       (acc.contacts||[]).forEach(con => {
@@ -974,7 +972,7 @@ function ContactImportModal({data, upd, closeModal}) {
     const [selConId, setSelConId] = React.useState("");
     const [f, setF] = React.useState({
       type: "Email",
-      date: new Date().toISOString().slice(0,10),
+      date: initialDate || new Date().toISOString().slice(0,10),
       notes: "",
       followUp: ""
     });
@@ -3682,7 +3680,7 @@ function App({demoMode, onSignOut}) {
                 if(modal==="contactImport") return <Modal title="Import Contacts from Screenshot" wide onClose={closeModal}><ContactImportModal data={data} upd={upd} closeModal={closeModal} /></Modal>;
     if(modal==="linkedInImport") return <Modal title="LinkedIn Smart Import" wide dark onClose={closeModal}><LinkedInImportModal data={data} upd={upd} closeModal={closeModal} /></Modal>;
     if(modal==="outlookSync") return <Modal title="Outlook Sync" wide dark onClose={closeModal}><OutlookSyncModal data={data} upd={upd} closeModal={closeModal} demoMode={demoMode} /></Modal>;
-    if(modal==="fabLog") return <Modal title="Log Activity" dark onClose={closeModal}><QuickLogModal data={data} upd={upd} closeModal={closeModal} /></Modal>;
+    if(modal==="fabLog") return <Modal title="Log Activity" dark onClose={closeModal}><QuickLogModal data={data} upd={upd} closeModal={closeModal} initialDate={form._calDate||null} /></Modal>;
     if(modal==="startCampaign") return <Modal title="Start Touchpoint Campaign" wide onClose={closeModal}><CampaignForm contactId={showCampaignForm} data={data} upd={upd} onClose={closeModal}/></Modal>;
       if(modal==="settings") return (
       <Modal title="Settings" onClose={closeModal}>
@@ -3863,6 +3861,7 @@ function App({demoMode, onSignOut}) {
       const n = new Date(); return {year:n.getFullYear(), month:n.getMonth()};
     });
     const [selectedDay, setSelectedDay] = React.useState(null);
+    const [calFilter, setCalFilter] = React.useState("all"); // all | job | followup | campaign | activity | outreach
     const {year,month} = calMonth;
     const firstDay = new Date(year,month,1).getDay();
     const daysInMonth = new Date(year,month+1,0).getDate();
@@ -3969,35 +3968,65 @@ function App({demoMode, onSignOut}) {
     // Day breakout modal
     const DayModal = function() {
       if(!selectedDay) return null;
-      const events = eventsByDay[selectedDay]||[];
+      const dayEvents = eventsByDay[selectedDay]||[];
       const dateStr = monthNames[month]+" "+selectedDay+", "+year;
+      const selectedDate = year+"-"+String(month+1).padStart(2,"0")+"-"+String(selectedDay).padStart(2,"0");
+      const isPast = new Date(selectedDate) <= new Date();
+      const typeLabels = {job:"Job Due",followup:"Follow-up",campaign:"Campaign Touch",outreach:"Outreach",activity:"Activity"};
+      const typeIcons = {job:"📋",followup:"🔔",campaign:"📣",outreach:"📢",activity:"✓"};
       return (
         <div onClick={function(){setSelectedDay(null);}} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
-          <div onClick={function(e){e.stopPropagation();}} style={{background:"#13181a",border:"1px solid #2a2f35",borderRadius:14,padding:"20px 24px",width:"100%",maxWidth:480,maxHeight:"80vh",overflowY:"auto"}}>
+          <div onClick={function(e){e.stopPropagation();}} style={{background:"#13181a",border:"1px solid #2a2f35",borderRadius:14,padding:"20px 24px",width:"100%",maxWidth:500,maxHeight:"85vh",overflowY:"auto"}}>
+            {/* Header */}
             <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16}}>
-              <div style={{fontFamily:"Georgia,serif",fontSize:18,color:"#f1f0f4"}}>{dateStr}</div>
+              <div>
+                <div style={{fontFamily:"Georgia,serif",fontSize:20,color:"#f1f0f4"}}>{dateStr}</div>
+                <div style={{fontSize:12,color:"#6b7280",marginTop:2}}>{dayEvents.length} event{dayEvents.length!==1?"s":""}</div>
+              </div>
               <button onClick={function(){setSelectedDay(null);}} style={{background:"none",border:"none",color:"#6b7280",cursor:"pointer",fontSize:20,lineHeight:1}}>&times;</button>
             </div>
-            {events.length===0 && <div style={{color:"#6b7280",fontSize:13}}>Nothing scheduled.</div>}
-            <div style={{display:"flex",flexDirection:"column",gap:10}}>
-              {events.map(function(ev, i) {
-                var typeLabels = {job:"Job Due",followup:"Follow-up",campaign:"Campaign Touch",outreach:"Outreach",activity:"Activity"};
+
+            {/* Events list */}
+            {dayEvents.length===0 && <div style={{color:"#6b7280",fontSize:13,paddingBottom:16}}>Nothing on this day.</div>}
+            <div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:16}}>
+              {dayEvents.map(function(ev, i) {
+                var canNav = ev.accId&&(ev.conId||ev.jobId);
                 return (
-                  <div key={i} onClick={function(){
-                    if(ev.accId&&ev.conId){ setSA(ev.accId); setSC(ev.conId); setAccTab&&setAccTab("contacts"); setView("contact"); setSelectedDay(null); }
-                    else if(ev.accId&&ev.jobId){ setSA(ev.accId); setSJ(ev.jobId); setView("job"); setSelectedDay(null); }
-                  }} style={{padding:"10px 14px",background:"#1a1f24",border:"1px solid "+ev.color+"40",borderRadius:8,cursor:(ev.accId&&(ev.conId||ev.jobId))?"pointer":"default"}}>
-                    <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
-                      <span style={{width:8,height:8,borderRadius:"50%",background:ev.color,flexShrink:0,display:"inline-block"}}></span>
-                      <span style={{fontSize:11,color:ev.color,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.05em"}}>{typeLabels[ev.type]||ev.type}</span>
+                  <div key={i} style={{padding:"12px 14px",background:"#1a1f24",border:"1px solid "+ev.color+"50",borderRadius:10,cursor:canNav?"pointer":"default",transition:"border-color 0.15s"}}
+                    onClick={function(){
+                      if(ev.accId&&ev.conId){ setSA(ev.accId); setSC(ev.conId); setAccTab&&setAccTab("contacts"); setView("contact"); setSelectedDay(null); }
+                      else if(ev.accId&&ev.jobId){ setSA(ev.accId); setSJ(ev.jobId); setView("job"); setSelectedDay(null); }
+                    }}
+                    onMouseEnter={function(e){if(canNav) e.currentTarget.style.borderColor=ev.color+"90";}}
+                    onMouseLeave={function(e){e.currentTarget.style.borderColor=ev.color+"50";}}
+                  >
+                    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:4}}>
+                      <div style={{display:"flex",alignItems:"center",gap:6}}>
+                        <span style={{fontSize:14}}>{typeIcons[ev.type]||"•"}</span>
+                        <span style={{fontSize:11,color:ev.color,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.05em"}}>{typeLabels[ev.type]||ev.type}</span>
+                      </div>
+                      {canNav && <span style={{fontSize:11,color:ev.color}}>Open →</span>}
                     </div>
-                    <div style={{fontSize:14,fontWeight:600,color:"#f1f0f4",marginBottom:2}}>{ev.label}</div>
-                    {ev.sub && <div style={{fontSize:12,color:"#9ca3af"}}>{ev.sub}</div>}
-                    {(ev.accId&&(ev.conId||ev.jobId)) && <div style={{fontSize:11,color:ev.color,marginTop:4}}>Tap to open →</div>}
+                    <div style={{fontSize:14,fontWeight:600,color:"#f1f0f4",marginBottom:ev.sub?4:0}}>{ev.label}</div>
+                    {ev.sub && <div style={{fontSize:12,color:"#9ca3af",lineHeight:1.4}}>{ev.sub}</div>}
                   </div>
                 );
               })}
             </div>
+
+            {/* Log Activity button - works for any date past or future */}
+            <button
+              onClick={function(){
+                setSelectedDay(null);
+                setModal("fabLog");
+                // Pre-fill the date in QuickLogModal via a small hack using form state
+                setTimeout(function(){ setForm(function(f){return {...f,_calDate:selectedDate};}); }, 50);
+              }}
+              style={{width:"100%",background:"#c8980a",border:"none",borderRadius:10,padding:"12px",fontSize:14,fontWeight:700,color:"#0a0d13",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:8}}
+            >
+              <span style={{fontSize:18}}>＋</span>
+              {isPast ? "Log Activity on This Day" : "Schedule Activity for This Day"}
+            </button>
           </div>
         </div>
       );
@@ -4013,6 +4042,14 @@ function App({demoMode, onSignOut}) {
           <button onClick={()=>{ const n=new Date(); setCalMonth({year:n.getFullYear(),month:n.getMonth()}); }} style={{...btn(null,C.gold,C.border2),padding:"5px 12px",fontSize:12}}>Today</button>
           
         </div>
+        {/* Filter bar */}
+        <div style={{display:"flex",gap:6,marginBottom:12,flexWrap:"wrap"}}>
+          {[["all","All"],["activity","Activities"],["job","Jobs Due"],["followup","Follow-ups"],["campaign","Campaigns"],["outreach","Outreach"]].map(function(pair){
+            var active = calFilter===pair[0];
+            return <button key={pair[0]} onClick={function(){setCalFilter(pair[0]);}} style={{padding:"4px 12px",borderRadius:20,border:"1px solid "+(active?"#c8980a60":"#2a2f35"),background:active?"#c8980a22":"transparent",color:active?"#c8980a":"#6b7280",fontSize:12,cursor:"pointer",fontWeight:active?700:400}}>{pair[1]}</button>;
+          })}
+        </div>
+
         <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:2,marginBottom:4}}>
           {["Sun","Mon","Tue","Wed","Thu","Fri","Sat"].map(d=>(
             <div key={d} style={{textAlign:"center",fontSize:11,color:C.textDim,padding:"6px 0",letterSpacing:"0.06em",textTransform:"uppercase"}}>{d}</div>
@@ -4021,7 +4058,8 @@ function App({demoMode, onSignOut}) {
         <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gridTemplateRows:"repeat(6, 1fr)",gap:4,height:isMobile?"auto":"calc(100vh - 280px)",minHeight:isMobile?480:500}}>
           {cells.map((d,i)=>{
             if(!d) return <div key={"e"+i} style={{background:C.surface,borderRadius:6,opacity:0.3}}/>;
-            const events = eventsByDay[d]||[];
+            const allDayEvents = eventsByDay[d]||[];
+            const events = calFilter==="all" ? allDayEvents : allDayEvents.filter(function(e){return e.type===calFilter;});
             const dots = {};
             events.forEach(function(ev){ dots[ev.color]=true; });
             return (
@@ -4484,12 +4522,10 @@ function App({demoMode, onSignOut}) {
                       {(data.settings&&data.settings.genLogTypes ? data.settings.genLogTypes : ["LinkedIn","Cold Email","Networking Event","Trade Show","Cold Call","Referral Outreach","Other"]).map(t=>(<option key={t}>{t}</option>))}
                     </select>
                   </div>
-                  {genLogForm.type==="Other" && (
-                    <div>
+                  <div style={{display:genLogForm.type==="Other"?"block":"none"}}>
                       <div style={{fontSize:11,color:C.textDim,marginBottom:4}}>Describe</div>
-                      <input value={genLogForm.otherType} onChange={e=>setGenLogForm(f=>({...f,otherType:e.target.value}))} placeholder="e.g. Sent thank you card" style={{...inp,width:"100%"}}/>
+                      <textarea value={genLogForm.otherType} onChange={e=>setGenLogForm(f=>({...f,otherType:e.target.value}))} placeholder="e.g. Sent thank you card" style={{...inp,width:"100%",minHeight:38,resize:"vertical"}}/>
                     </div>
-                  )}
                 </div>
                 <div style={{marginBottom:10}}>
                   <div style={{fontSize:11,color:C.textDim,marginBottom:4}}>Notes</div>
