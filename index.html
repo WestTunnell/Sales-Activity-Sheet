@@ -793,7 +793,7 @@ function ContactImportModal({data, upd, closeModal}) {
           if (!acc) return;
           var exists = acc.contacts.some(function(ex){ return nameSimilarity(ex.name, ec.name||"") > 0.85; });
           if (!exists) {
-            acc.contacts.push({id:uid(), name:ec.name||"", title:ec.title||"", email:ec.email||"", phone:ec.phone||"", howMet:"", notes:ec.notes||"", activities:[], campaign:null});
+            acc.contacts.push({id:uid(), name:ec.name||"", title:ec.title||"", email:ec.email||"", phone:ec.phone||"", howMet:"", notes:ec.notes||"", activities:[], createdAt:new Date().toISOString(), campaign:null});
           }
         }
       });
@@ -1185,6 +1185,7 @@ const AddToSalesOSForm = ({item, dec, setDecision, data, upd}) => {
         email: form.email||"",
         phone: form.phone||"",
         notes: "Added via Outlook Sync",
+        createdAt: new Date().toISOString(),
         activities: [],
         campaign: null
       };
@@ -2500,7 +2501,8 @@ Return ONLY the JSON array, no other text.`;
             phone:"",
             notes:"Imported from LinkedIn"+( c.connectedOn?" — connected "+c.connectedOn:""),
             activities:[],
-            campaign:null
+            campaign:null,
+            createdAt:new Date().toISOString()
           });
         }
       });
@@ -2895,7 +2897,7 @@ function App({demoMode, onSignOut}) {
   };
   const saveCon = isNew => {
     const b={name:form.name||"New Contact",title:form.title||"",email:form.email||"",phone:form.phone||"",notes:form.notes||""};
-    if(isNew) upd(d=>{d.accounts.find(a=>a.id===selAcc).contacts.push({id:uid(),...b,activities:[]});return d;});
+    if(isNew) upd(d=>{d.accounts.find(a=>a.id===selAcc).contacts.push({id:uid(),...b,activities:[],createdAt:new Date().toISOString()});return d;});
     else upd(d=>{Object.assign(d.accounts.find(a=>a.id===selAcc).contacts.find(c=>c.id===form.id),b);return d;});
     closeModal();
   };
@@ -3211,7 +3213,7 @@ function App({demoMode, onSignOut}) {
         d.accounts.push({
           id:uid(), name:imp.name, industry:imp.industry||"", markets:imp.markets||[],
           tier:imp.tier||2, dealSize:"", notes:"", pros:[], cons:[],
-          contacts:imp.contacts.map(c=>({id:uid(),name:c.name,title:c.title||"",email:c.email||"",phone:c.phone||"",notes:"",activities:[]})),
+          contacts:imp.contacts.map(c=>({id:uid(),name:c.name,title:c.title||"",email:c.email||"",phone:c.phone||"",notes:"",activities:[],createdAt:new Date().toISOString()})),
           jobs:imp.jobs.map(j=>({id:uid(),name:j.name,status:j.status||"Active Pursuit",estimatedValue:j.estimatedValue||"",location:j.location||"",dueDate:j.dueDate||"",notes:j.notes||"",proposals:[]}))
         });
       });
@@ -3722,6 +3724,20 @@ function App({demoMode, onSignOut}) {
           <textarea style={{...inp,resize:"vertical",height:180}} value={form.marketList!=null?form.marketList:allMarkets.join("\n")} onChange={ff("marketList")}/>
         </Field>
         <button style={{...btn(null,C.textLo,C.border2),width:"100%",justifyContent:"center"}} onClick={saveMarkets}>Save Market List</button>
+        <div style={divL}/>
+        <div style={{fontFamily:C.serif,fontSize:16,color:C.textHi,marginBottom:6}}>General Outreach Types</div>
+        <div style={{fontSize:12,color:C.textDim,marginBottom:8}}>Customize the activity types shown in the General Outreach Log. One per line.</div>
+        <Field label="Outreach Types">
+          <textarea style={{...inp,resize:"vertical",height:120}} value={form.genLogTypes!=null?form.genLogTypes:(data.settings&&data.settings.genLogTypes?data.settings.genLogTypes:["LinkedIn","Cold Email","Networking Event","Trade Show","Cold Call","Referral Outreach","Other"]).join("\n")} onChange={ff("genLogTypes")}/>
+        </Field>
+        <button style={{...btn(null,C.textLo,C.border2),width:"100%",justifyContent:"center"}} onClick={()=>{
+          upd(d=>{
+            if(!d.settings) d.settings={};
+            d.settings.genLogTypes=(form.genLogTypes||(data.settings&&data.settings.genLogTypes?data.settings.genLogTypes.join("\n"):"LinkedIn\nCold Email\nNetworking Event\nTrade Show\nCold Call\nReferral Outreach\nOther")).split("\n").map(s=>s.trim()).filter(Boolean);
+            return d;
+          });
+          closeModal();
+        }}>Save Outreach Types</button>
         <div style={divL}/>
         <div style={{fontFamily:C.serif,fontSize:16,color:C.textHi,marginBottom:6}}>Restore from Backup</div>
         <div style={{fontSize:12,color:C.textDim,marginBottom:10}}>Upload a previously exported SalesOS JSON file to restore your data. Your settings and password will be kept.</div>
@@ -4465,7 +4481,7 @@ function App({demoMode, onSignOut}) {
                   <div>
                     <div style={{fontSize:11,color:C.textDim,marginBottom:4}}>Type</div>
                     <select value={genLogForm.type} onChange={e=>setGenLogForm(f=>({...f,type:e.target.value,otherType:""}))} style={{...inp,width:"100%"}}>
-                      {["LinkedIn","Cold Email","Networking Event","Trade Show","Cold Call","Referral Outreach","Other"].map(t=>(<option key={t}>{t}</option>))}
+                      {(data.settings&&data.settings.genLogTypes ? data.settings.genLogTypes : ["LinkedIn","Cold Email","Networking Event","Trade Show","Cold Call","Referral Outreach","Other"]).map(t=>(<option key={t}>{t}</option>))}
                     </select>
                   </div>
                   {genLogForm.type==="Other" && (
@@ -4477,7 +4493,7 @@ function App({demoMode, onSignOut}) {
                 </div>
                 <div style={{marginBottom:10}}>
                   <div style={{fontSize:11,color:C.textDim,marginBottom:4}}>Notes</div>
-                  <input value={genLogForm.notes} onChange={e=>setGenLogForm(f=>({...f,notes:e.target.value}))} placeholder="e.g. LinkedIn requests to home builders in Scottsdale" style={{...inp,width:"100%"}}/>
+                  <textarea value={genLogForm.notes} onChange={e=>setGenLogForm(f=>({...f,notes:e.target.value}))} placeholder="e.g. LinkedIn requests to home builders in Scottsdale" style={{...inp,width:"100%",minHeight:60,resize:"vertical"}}/>
                 </div>
                 <div style={{display:"grid",gridTemplateColumns:"1fr auto auto",gap:10,alignItems:"end",marginBottom:10}}>
                   <div>
@@ -4608,19 +4624,18 @@ function App({demoMode, onSignOut}) {
               if(diff!==null && diff<=0) outstandingTouches++;
             }));
 
-            // 3. New contacts added this month
+            // 3. New contacts added in last 2 weeks (using contact createdAt)
+            const twoWeeksAgo = new Date(now); twoWeeksAgo.setDate(now.getDate()-14); twoWeeksAgo.setHours(0,0,0,0);
             const newContacts = data.accounts.reduce((sum,acc)=>{
               return sum + (acc.contacts||[]).filter(con=>{
-                if(!con.activities||con.activities.length===0) return false;
-                const oldest = con.activities[con.activities.length-1];
-                return oldest.createdAt && new Date(oldest.createdAt)>=monthStart;
+                return con.createdAt && new Date(con.createdAt)>=twoWeeksAgo;
               }).length;
             },0);
 
             const stats = [
               {val:weekTouches, label:"Unique Contacts Touched This Week", color:weekTouches>0?C.blue:C.textDim},
               {val:outstandingTouches, label:"Campaign Touches Overdue", color:outstandingTouches>0?C.red:C.green},
-              {val:newContacts, label:"New Contacts Added This Month", color:newContacts>0?C.purple:C.textDim},
+              {val:newContacts, label:"New Contacts Added Last 2 Weeks", color:newContacts>0?C.purple:C.textDim},
             ];
 
             return stats.map((s,i)=>(
