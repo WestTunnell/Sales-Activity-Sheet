@@ -2686,6 +2686,70 @@ function CampaignPanel({data, upd, setModal, setForm, setSA, setSC, setView, sho
 
 
 
+// ── GenLogForm: standalone component to avoid App re-render on keystroke ──────
+function GenLogForm({data, onSave, onCancel, genLogTypes}) {
+  const [type, setType] = React.useState("LinkedIn");
+  const [otherType, setOtherType] = React.useState("");
+  const [notes, setNotes] = React.useState("");
+  const [contactId, setContactId] = React.useState("");
+  const [count, setCount] = React.useState(1);
+  const [date, setDate] = React.useState(new Date().toISOString().slice(0,10));
+  const [countAsCampaign, setCountAsCampaign] = React.useState(false);
+
+  const types = genLogTypes || ["LinkedIn","Cold Email","Networking Event","Trade Show","Cold Call","Referral Outreach","Other"];
+
+  const inpStyle = {width:"100%",background:"#f8f7f8",border:"1px solid #d0cdd0",borderRadius:8,color:"#3a3840",padding:"9px 12px",fontSize:14,fontFamily:"'DM Sans','Helvetica Neue',sans-serif",boxSizing:"border-box",outline:"none"};
+
+  const handleSave = () => {
+    if(!notes.trim()) return;
+    const actType = type==="Other" ? (otherType||"Other") : type;
+    onSave({type:actType, notes, date, count:parseInt(count)||1, contactId:contactId||null, countAsCampaign});
+  };
+
+  return (
+    <div style={{background:"#f0eff0",border:"1px solid #e0dde0",borderRadius:10,padding:"14px 16px",marginBottom:14}}>
+      <div style={{marginBottom:10}}>
+        <div style={{fontSize:11,color:"#7a7880",marginBottom:4}}>Type</div>
+        <select value={type} onChange={e=>{setType(e.target.value);setOtherType("");}} style={{...inpStyle}}>
+          {types.map(t=>(<option key={t}>{t}</option>))}
+        </select>
+      </div>
+      <div style={{display:type==="Other"?"block":"none",marginBottom:10}}>
+        <div style={{fontSize:11,color:"#7a7880",marginBottom:4}}>Describe</div>
+        <textarea value={otherType} onChange={e=>setOtherType(e.target.value)} placeholder="e.g. Sent thank you card" style={{...inpStyle,minHeight:38,resize:"vertical"}}/>
+      </div>
+      <div style={{marginBottom:10}}>
+        <div style={{fontSize:11,color:"#7a7880",marginBottom:4}}>Notes</div>
+        <textarea value={notes} onChange={e=>setNotes(e.target.value)} placeholder="e.g. LinkedIn requests to home builders in Scottsdale" style={{...inpStyle,minHeight:60,resize:"vertical"}}/>
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr auto auto",gap:10,alignItems:"end",marginBottom:10}}>
+        <div>
+          <div style={{fontSize:11,color:"#7a7880",marginBottom:4}}>Specific Contact (optional)</div>
+          <select value={contactId} onChange={e=>setContactId(e.target.value)} style={{...inpStyle}}>
+            <option value="">-- General / No specific contact --</option>
+            {data.accounts.flatMap(a=>a.contacts.map(con=>({con,acc:a}))).sort((a,b)=>a.con.name.localeCompare(b.con.name)).map(({con,acc})=>(
+              <option key={con.id} value={con.id}>{con.name} ({acc.name})</option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <div style={{fontSize:11,color:"#7a7880",marginBottom:4}}># Contacts</div>
+          <input type="number" min="1" value={count} onChange={e=>setCount(e.target.value)} style={{...inpStyle,width:70}}/>
+        </div>
+        <div>
+          <div style={{fontSize:11,color:"#7a7880",marginBottom:4}}>Date</div>
+          <input type="date" value={date} onChange={e=>setDate(e.target.value)} style={{...inpStyle,width:140}}/>
+        </div>
+      </div>
+      <div style={{display:"flex",gap:8,alignItems:"center"}}>
+        <button onClick={handleSave} disabled={!notes.trim()} style={{padding:"8px 18px",background:notes.trim()?"#c8980a":"#e0dde0",border:"none",borderRadius:8,cursor:notes.trim()?"pointer":"default",fontWeight:700,fontSize:13,color:notes.trim()?"#0a0d13":"#aaa8b0"}}>Save Activity</button>
+        <button onClick={onCancel} style={{padding:"8px 14px",background:"transparent",border:"1px solid #d0cdd0",borderRadius:8,cursor:"pointer",fontSize:13,color:"#7a7880"}}>Cancel</button>
+      </div>
+    </div>
+  );
+}
+
+
 function App({demoMode, onSignOut}) {
   const isMobile = useIsMobile();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -4526,63 +4590,33 @@ function App({demoMode, onSignOut}) {
               <button onClick={()=>setShowGenLog(s=>!s)} style={{...btn(null,C.blue,C.border2),fontSize:12,padding:"5px 12px"}}>{showGenLog?"Cancel":"+ Log Activity"}</button>
             </div>
             {showGenLog&&(
-              <div style={{background:C.bg,border:"1px solid "+C.border,borderRadius:10,padding:"14px 16px",marginBottom:14}}>
-                <div style={{marginBottom:10}}>
-                  <div style={{fontSize:11,color:C.textDim,marginBottom:4}}>Type</div>
-                  <select value={genLogForm.type} onChange={e=>setGenLogForm(f=>({...f,type:e.target.value,otherType:""}))} style={{...inp,width:"100%"}}>
-                    {(data.settings&&data.settings.genLogTypes ? data.settings.genLogTypes : ["LinkedIn","Cold Email","Networking Event","Trade Show","Cold Call","Referral Outreach","Other"]).map(t=>(<option key={t}>{t}</option>))}
-                  </select>
-                </div>
-                <div style={{display:genLogForm.type==="Other"?"block":"none",marginBottom:10}}>
-                  <div style={{fontSize:11,color:C.textDim,marginBottom:4}}>Describe</div>
-                  <textarea value={genLogForm.otherType} onChange={e=>setGenLogForm(f=>({...f,otherType:e.target.value}))} placeholder="e.g. Sent thank you card" style={{...inp,width:"100%",minHeight:38,resize:"vertical"}}/>
-                </div>
-                <div style={{marginBottom:10}}>
-                  <div style={{fontSize:11,color:C.textDim,marginBottom:4}}>Notes</div>
-                  <textarea value={genLogForm.notes} onChange={e=>setGenLogForm(f=>({...f,notes:e.target.value}))} placeholder="e.g. LinkedIn requests to home builders in Scottsdale" style={{...inp,width:"100%",minHeight:60,resize:"vertical"}}/>
-                </div>
-                <div style={{display:"grid",gridTemplateColumns:"1fr auto auto",gap:10,alignItems:"end",marginBottom:10}}>
-                  <div>
-                    <div style={{fontSize:11,color:C.textDim,marginBottom:4}}>Specific Contact (optional)</div>
-                    <select value={genLogForm.contactId||""} onChange={e=>setGenLogForm(f=>({...f,contactId:e.target.value||null,countAsCampaign:false}))} style={{...inp,width:"100%"}}>
-                      <option value="">-- General / No specific contact --</option>
-                      {data.accounts.flatMap(a=>a.contacts.map(con=>({con,acc:a}))).sort((a,b)=>a.con.name.localeCompare(b.con.name)).map(({con,acc})=>(
-                        <option key={con.id} value={con.id}>{con.name} ({acc.name})</option>
-                      ))}
-                    </select>
-                  </div>
-                  <div>
-                    <div style={{fontSize:11,color:C.textDim,marginBottom:4}}># Contacts</div>
-                    <input type="number" min="1" value={genLogForm.count} onChange={e=>setGenLogForm(f=>({...f,count:e.target.value}))} style={{...inp,width:70}}/>
-                  </div>
-                  <div>
-                    <div style={{fontSize:11,color:C.textDim,marginBottom:4}}>Date</div>
-                    <input type="date" value={genLogForm.date} onChange={e=>setGenLogForm(f=>({...f,date:e.target.value}))} style={{...inp}}/>
-                  </div>
-                </div>
-                {(()=>{
-                  if(!genLogForm.contactId) return null;
-                  const con = data.accounts.flatMap(a=>a.contacts).find(c=>c.id===genLogForm.contactId);
-                  const camp = con&&con.campaign&&con.campaign.status==="active"?con.campaign:null;
-                  const nextTouch = camp?camp.touches.find(t=>!t.completedAt):null;
-                  if(!camp||!nextTouch) return null;
-                  const done = camp.touches.filter(t=>t.completedAt).length;
-                  return (
-                    <div style={{background:"#1a1f10",border:"1px solid "+C.gold+"40",borderRadius:8,padding:"10px 14px",marginBottom:10}}>
-                      <label style={{display:"flex",alignItems:"center",gap:10,cursor:"pointer"}}>
-                        <input type="checkbox" checked={genLogForm.countAsCampaign} onChange={e=>setGenLogForm(f=>({...f,countAsCampaign:e.target.checked}))} style={{accentColor:C.gold,width:16,height:16}}/>
-                        <div>
-                          <div style={{fontSize:13,color:C.gold,fontWeight:600}}>Count as Touch {done+1} of {camp.touches.length}</div>
-                          <div style={{fontSize:11,color:C.textDim,marginTop:2}}>{camp.name}</div>
-                        </div>
-                      </label>
-                    </div>
-                  );
-                })()}
-                <div>
-                  <button onClick={saveGeneralActivity} disabled={!genLogForm.notes.trim()||(genLogForm.type==="Other"&&!genLogForm.otherType.trim())} style={{...btn(null,C.green,C.green+"40"),fontSize:13,padding:"6px 16px",opacity:(genLogForm.notes.trim()&&(genLogForm.type!=="Other"||genLogForm.otherType.trim()))?1:0.5}}>Save Activity</button>
-                </div>
-              </div>
+              <GenLogForm
+                data={data}
+                genLogTypes={data.settings&&data.settings.genLogTypes}
+                onSave={function(vals){
+                  upd(d=>{
+                    if(!d.generalActivities) d.generalActivities=[];
+                    d.generalActivities.unshift({id:uid(),type:vals.type,notes:vals.notes,
+                      date:vals.date,count:vals.count,
+                      contactId:vals.contactId||null,createdAt:new Date().toISOString()});
+                    if(vals.contactId) {
+                      d.accounts.forEach(acc=>{
+                        const con = acc.contacts.find(c=>c.id===vals.contactId);
+                        if(con){
+                          con.activities.unshift({id:uid(),type:vals.type,date:vals.date,
+                            notes:vals.notes,followUp:null,jobId:null,fromOutreachLog:true,
+                            createdAt:new Date().toISOString()});
+                          con.activities.sort((a,b)=>new Date(b.date)-new Date(a.date));
+                          acc.lastContact=vals.date;
+                        }
+                      });
+                    }
+                    return d;
+                  });
+                  setShowGenLog(false);
+                }}
+                onCancel={function(){setShowGenLog(false);}}
+              />
             )}
             {!showGenLog&&(
               <div style={{fontSize:12,color:C.textDim,paddingTop:4}}>
@@ -5352,4 +5386,32 @@ function Root() {
 ReactDOM.createRoot(document.getElementById("root")).render(<Root/>);
 </script>
 </body>
-</html>
+</html>{showGenLog&&(
+              <GenLogForm
+                data={data}
+                genLogTypes={data.settings&&data.settings.genLogTypes}
+                onSave={function(vals){
+                  upd(d=>{
+                    if(!d.generalActivities) d.generalActivities=[];
+                    d.generalActivities.unshift({id:uid(),type:vals.type,notes:vals.notes,
+                      date:vals.date,count:vals.count,
+                      contactId:vals.contactId||null,createdAt:new Date().toISOString()});
+                    if(vals.contactId) {
+                      d.accounts.forEach(acc=>{
+                        const con = acc.contacts.find(c=>c.id===vals.contactId);
+                        if(con){
+                          con.activities.unshift({id:uid(),type:vals.type,date:vals.date,
+                            notes:vals.notes,followUp:null,jobId:null,fromOutreachLog:true,
+                            createdAt:new Date().toISOString()});
+                          con.activities.sort((a,b)=>new Date(b.date)-new Date(a.date));
+                          acc.lastContact=vals.date;
+                        }
+                      });
+                    }
+                    return d;
+                  });
+                  setShowGenLog(false);
+                }}
+                onCancel={function(){setShowGenLog(false);}}
+              />
+            )}
