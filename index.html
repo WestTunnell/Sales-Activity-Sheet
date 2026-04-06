@@ -3426,6 +3426,50 @@ function App({demoMode, onSignOut}) {
     if(modal==="editJob") return <Modal title="Edit Job" onClose={closeModal}><JobForm isNew={false}/></Modal>;
     if(modal==="addAct")  return <Modal title="Log Activity" onClose={closeModal}><ActForm isNew={true}/></Modal>;
     if(modal==="editAct") return <Modal title="Edit Activity" onClose={closeModal}><ActForm isNew={false}/></Modal>;
+    if(modal==="reassignAct") return (
+      <Modal title="Reassign Activity" onClose={closeModal}>
+        <div style={{display:"flex",flexDirection:"column",gap:14}}>
+          <div style={{fontSize:13,color:C.textDim}}>Move this activity to a different contact.</div>
+          <div>
+            <div style={{fontSize:12,fontWeight:600,color:C.textLo,marginBottom:6}}>Activity: {form.type} — {form.date}</div>
+            <div style={{fontSize:12,color:C.textDim,marginBottom:10}}>{form.notes&&form.notes.slice(0,80)}</div>
+          </div>
+          <div>
+            <div style={{fontSize:12,fontWeight:600,color:C.textLo,marginBottom:6}}>Reassign to contact</div>
+            <select style={inp} value={form._newConId||""} onChange={ff("_newConId")}>
+              <option value="">-- Select contact --</option>
+              {data.accounts.flatMap(acc=>acc.contacts.map(con=>({con,acc}))).sort((a,b)=>a.con.name.localeCompare(b.con.name)).map(({con,acc})=>(
+                <option key={con.id} value={con.id+"|"+acc.id}>{con.name} — {acc.name}</option>
+              ))}
+            </select>
+          </div>
+          <button
+            style={{...btn(C.gold,"#0a0d13"),width:"100%",justifyContent:"center"}}
+            onClick={()=>{
+              if(!form._newConId){alert("Please select a contact");return;}
+              var parts = form._newConId.split("|");
+              var newConId = parts[0], newAccId = parts[1];
+              upd(d=>{
+                // Remove from current contact
+                var oldAcc = d.accounts.find(a=>a.id===selAcc);
+                var oldCon = oldAcc&&oldAcc.contacts.find(c=>c.id===selCon);
+                if(oldCon) oldCon.activities = (oldCon.activities||[]).filter(a=>a.id!==form.id);
+                // Add to new contact
+                var newAcc = d.accounts.find(a=>a.id===newAccId);
+                var newCon = newAcc&&newAcc.contacts.find(c=>c.id===newConId);
+                if(newCon){
+                  if(!newCon.activities) newCon.activities=[];
+                  newCon.activities.unshift({...form, _newConId:undefined, _reassign:undefined});
+                  newCon.activities.sort((a,b)=>new Date(b.date)-new Date(a.date));
+                }
+                return d;
+              });
+              closeModal();
+            }}
+          >Move Activity</button>
+        </div>
+      </Modal>
+    );
     if(modal==="addProp") return <Modal title="Add Proposal" onClose={closeModal}><PropForm isNew={true}/></Modal>;
     if(modal==="editProp")return <Modal title="Edit Proposal" onClose={closeModal}><PropForm isNew={false}/></Modal>;
 
@@ -4536,54 +4580,60 @@ function App({demoMode, onSignOut}) {
           </div>
         )}
 
-        {/* -- Activity Pulse -- */}
-        {allActs.length>0&&(
-          <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:"16px 20px",marginBottom:20}}>
-            <div style={{fontFamily:C.serif,fontSize:16,color:C.textHi,marginBottom:14}}>Activity Pulse</div>
-            <div style={{display:"flex",gap:20,flexWrap:"wrap",alignItems:"flex-start"}}>
+        {/* -- BD Momentum -- */}
+        <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:"16px 20px",marginBottom:20}}>
+          <div style={{fontFamily:C.serif,fontSize:16,color:C.textHi,marginBottom:14}}>BD Momentum</div>
+          <div style={{display:"flex",gap:0,flexWrap:"wrap"}}>{(()=>{
+            const now = new Date();
+            const weekStart = new Date(now); weekStart.setDate(now.getDate()-(now.getDay()===0?6:now.getDay()-1)); weekStart.setHours(0,0,0,0);
+            const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
 
-              {/* touchpoints this month */}
-              <div style={{display:"flex",flexDirection:"column",alignItems:"center",minWidth:90}}>
-                <div style={{fontWeight:700,fontSize:26,color:touchThisMonth>0?C.blue:C.textDim,lineHeight:1}}>{touchThisMonth}</div>
-                <div style={{fontSize:10,color:C.textDim,marginTop:4,textTransform:"uppercase",letterSpacing:"0.07em",textAlign:"center"}}>Touchpoints<br/>Last 30 Days</div>
-              </div>
+            // 1. Unique contacts touched this week
+            const touchedConIds = new Set();
+            data.accounts.forEach(acc=>acc.contacts.forEach(con=>{
+              (con.activities||[]).forEach(act=>{
+                if(act.date && new Date(act.date)>=weekStart) touchedConIds.add(con.id);
+              });
+            }));
+            const weekTouches = touchedConIds.size;
 
-              <div style={{width:1,background:C.border,alignSelf:"stretch",margin:"0 4px"}}/>
+            // 2. Campaign touches outstanding
+            let outstandingTouches = 0;
+            data.accounts.forEach(acc=>acc.contacts.forEach(con=>{
+              const camp = con.campaign;
+              if(!camp||camp.status!=="active") return;
+              const next = camp.touches.find(t=>!t.completedAt);
+              if(!next) return;
+              const diff = next.dueDate ? Math.ceil((new Date(next.dueDate)-now)/86400000) : null;
+              if(diff!==null && diff<=0) outstandingTouches++;
+            }));
 
-              {/* avg days between contacts */}
-              {avgDaysBetween!==null&&(
-                <>
-                  <div style={{display:"flex",flexDirection:"column",alignItems:"center",minWidth:90}}>
-                    <div style={{fontWeight:700,fontSize:26,color:avgDaysBetween<=14?C.green:avgDaysBetween<=30?C.amber:C.red,lineHeight:1}}>{avgDaysBetween}d</div>
-                    <div style={{fontSize:10,color:C.textDim,marginTop:4,textTransform:"uppercase",letterSpacing:"0.07em",textAlign:"center"}}>Avg Days<br/>Between Contact</div>
-                  </div>
-                  <div style={{width:1,background:C.border,alignSelf:"stretch",margin:"0 4px"}}/>
-                </>
-              )}
+            // 3. New contacts added this month
+            const newContacts = data.accounts.reduce((sum,acc)=>{
+              return sum + (acc.contacts||[]).filter(con=>{
+                if(!con.activities||con.activities.length===0) return false;
+                const oldest = con.activities[con.activities.length-1];
+                return oldest.createdAt && new Date(oldest.createdAt)>=monthStart;
+              }).length;
+            },0);
 
-              {/* activity type breakdown bar chart */}
-              {actTypeTop.length>0&&(
-                <div style={{flex:1,minWidth:200}}>
-                  <div style={{fontSize:10,color:C.textDim,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:8}}>Activity Breakdown</div>
-                  {actTypeTop.map(([type,count])=>{
-                    const pct = actTypeTotal>0?count/actTypeTotal:0;
-                    const barColor = type.includes("LinkedIn")?C.blue:type==="Email"?"#6b7280":type==="Proposal"?C.gold:type==="Phone Call"?C.purple:type==="Coffee"||type==="Lunch"||type==="Happy Hour"?C.green:C.amber;
-                    return (
-                      <div key={type} style={{display:"flex",alignItems:"center",gap:8,marginBottom:5}}>
-                        <div style={{fontSize:11,color:C.textLo,width:120,textAlign:"right",flexShrink:0,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{type}</div>
-                        <div style={{flex:1,background:C.bg,borderRadius:4,height:8,overflow:"hidden"}}>
-                          <div style={{width:(pct*100)+"%",height:"100%",background:barColor,borderRadius:4,transition:"width .4s"}}/>
-                        </div>
-                        <div style={{fontSize:11,color:C.textDim,width:28,textAlign:"right",flexShrink:0}}>{count}</div>
-                      </div>
-                    );
-                  })}
+            const stats = [
+              {val:weekTouches, label:"Unique Contacts Touched This Week", color:weekTouches>0?C.blue:C.textDim},
+              {val:outstandingTouches, label:"Campaign Touches Overdue", color:outstandingTouches>0?C.red:C.green},
+              {val:newContacts, label:"New Contacts Added This Month", color:newContacts>0?C.purple:C.textDim},
+            ];
+
+            return stats.map((s,i)=>(
+              <div key={i} style={{display:"flex",flex:1,minWidth:100}}>
+                {i>0&&<div style={{width:1,background:C.border,margin:"0 16px"}}/>}
+                <div style={{display:"flex",flexDirection:"column",alignItems:"center",flex:1}}>
+                  <div style={{fontWeight:700,fontSize:28,color:s.color,lineHeight:1}}>{s.val}</div>
+                  <div style={{fontSize:10,color:C.textDim,marginTop:6,textTransform:"uppercase",letterSpacing:"0.07em",textAlign:"center",whiteSpace:"normal"}}>{s.label}</div>
                 </div>
-              )}
-
-            </div>
-          </div>
-        )}
+              </div>
+            ));
+          })()}</div>
+        </div>
         <MktBar/>
 
         {/* -- Campaign Alerts Strip -- */}
@@ -5054,6 +5104,7 @@ function App({demoMode, onSignOut}) {
                     </div>
                     <div style={{display:"flex",gap:4}}>
                       <button onClick={()=>{setForm({...act,followUp:act.followUp||""});setModal("editAct");}} style={{background:"none",border:"none",color:C.textDim,cursor:"pointer",padding:"4px 6px"}}>Edit</button>
+                      <button onClick={()=>{setForm({...act,_reassign:true});setModal("reassignAct");}} style={{background:"none",border:"none",color:C.blue,cursor:"pointer",padding:"4px 6px"}}>Reassign</button>
                       <button onClick={()=>delAct(act.id)} style={{background:"none",border:"none",color:"#9ca3af",cursor:"pointer",padding:"4px 6px"}}>Del</button>
                     </div>
                   </div>
