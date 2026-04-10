@@ -4024,7 +4024,7 @@ function App({demoMode, onSignOut}) {
           if(["Email","Cold Email"].includes(t)) return "#4b5563";
           return "#7c3aed";
         })();
-        addEvent(d.getDate(), {type:"outreach", label:a.type+(a.notes?" — "+a.notes.slice(0,30):""), sub:a.notes, color:outColor, _genActId:a.id});
+        addEvent(d.getDate(), {type:"outreach", label:a.type, sub:a.notes, color:outColor, _genActId:a.id});
       }
     });
 
@@ -4050,7 +4050,7 @@ function App({demoMode, onSignOut}) {
             addEvent(d.getDate(), {
               type:"activity",
               label: act.type+": "+con.name,
-              sub: (acc.name+(act.notes?" · "+act.notes.slice(0,50):"")),
+              sub: acc.name,
               color: actColor,
               accId:acc.id,
               conId:con.id
@@ -4173,6 +4173,57 @@ function App({demoMode, onSignOut}) {
           })}
         </div>
 
+                {/* ── MOBILE: scrollable day list ── */}
+        {isMobile ? (
+          <div style={{display:"flex",flexDirection:"column",gap:8,overflowY:"auto",maxHeight:"calc(100vh - 260px)"}}>
+            {(function(){
+              var days = [];
+              var daysInMonth = new Date(year, month+1, 0).getDate();
+              var today = new Date();
+              for(var d = 1; d <= daysInMonth; d++){
+                var dayEvents = eventsByDay[d]||[];
+                var filtered = calFilter==="all" ? dayEvents : dayEvents.filter(function(e){return e.type===calFilter;});
+                var isToday = today.getFullYear()===year && today.getMonth()===month && today.getDate()===d;
+                var isPast = new Date(year,month,d) < new Date(today.getFullYear(),today.getMonth(),today.getDate());
+                // Only show days with events, or today, or future days with anything upcoming
+                if(filtered.length===0 && !isToday) return null;
+                var dateLabel = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"][new Date(year,month,d).getDay()]+" "+monthNames[month]+" "+d;
+                days.push(
+                  <div key={d} style={{background:isToday?"#1a1f24":C.surface,border:"1px solid "+(isToday?"#c8980a60":C.border),borderRadius:10,overflow:"hidden"}}>
+                    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"8px 12px",borderBottom:filtered.length>0?"1px solid "+C.border:"none",cursor:"pointer"}}
+                      onClick={function(){setSelectedDay(d);}}>
+                      <span style={{fontSize:13,fontWeight:isToday?700:600,color:isToday?"#c8980a":C.textHi}}>{dateLabel}</span>
+                      <div style={{display:"flex",alignItems:"center",gap:8}}>
+                        {filtered.length>0&&<span style={{fontSize:11,color:C.textDim}}>{filtered.length} event{filtered.length!==1?"s":""}</span>}
+                        <span style={{fontSize:11,color:C.blue,cursor:"pointer"}} onClick={function(e){e.stopPropagation();setSelectedDay(d);setModal("fabLog");setTimeout(function(){setForm(function(f){return {...f,_calDate:year+"-"+String(month+1).padStart(2,"0")+"-"+String(d).padStart(2,"0")};});},50);}}>+ Log</span>
+                      </div>
+                    </div>
+                    {filtered.length>0&&(
+                      <div style={{display:"flex",flexDirection:"column",gap:0}}>
+                        {filtered.map(function(ev,i){
+                          var canNav = ev.accId&&(ev.conId||ev.jobId);
+                          return (
+                            <div key={i} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 12px",borderBottom:i<filtered.length-1?"1px solid "+C.border+"60":"none",cursor:canNav?"pointer":"default"}}
+                              onClick={function(){
+                                if(ev.accId&&ev.conId){setSA(ev.accId);setSC(ev.conId);setAccTab&&setAccTab("contacts");setView("contact");}
+                                else if(ev.accId&&ev.jobId){setSA(ev.accId);setSJ(ev.jobId);setView("job");}
+                              }}>
+                              <span style={{width:8,height:8,borderRadius:"50%",background:ev.color,flexShrink:0,display:"inline-block"}}/>
+                              <span style={{fontSize:13,color:C.textHi,flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{ev.label}</span>
+                              {canNav&&<span style={{fontSize:11,color:ev.color,flexShrink:0}}>→</span>}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              }
+              return days;
+            })()}
+          </div>
+        ) : (
+        <>
         <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:2,marginBottom:4}}>
           {["Sun","Mon","Tue","Wed","Thu","Fri","Sat"].map(d=>(
             <div key={d} style={{textAlign:"center",fontSize:11,color:C.textDim,padding:"6px 0",letterSpacing:"0.06em",textTransform:"uppercase"}}>{d}</div>
@@ -4193,11 +4244,24 @@ function App({demoMode, onSignOut}) {
                 <div style={{fontSize:13,fontWeight:isToday(d)?700:500,color:isToday(d)?C.gold:C.textDim,marginBottom:4,textAlign:"right",paddingRight:2}}>{d}</div>
                 <div style={{display:"flex",flexDirection:"column",gap:2}}>
                   {(function(){
-                    // Prioritize non-email events — emails shown last and only if space
-                    var priority = events.filter(function(e){return e.type!=="activity"||(e.label&&!e.label.startsWith("Email:"));});
-                    var emails = events.filter(function(e){return e.type==="activity"&&e.label&&e.label.startsWith("Email:");});
-                    var display = priority.slice(0,3);
-                    if(display.length < 3) display = display.concat(emails.slice(0, 3-display.length));
+                    // Sort by priority: in-person > jobs/followups > outreach > phone > linkedin > email
+                    var getPriority = function(e) {
+                      var l = (e.label||"").toLowerCase();
+                      if(l.startsWith("lunch")||l.startsWith("coffee")||l.startsWith("happy hour")||l.startsWith("entertainment")) return 0;
+                      if(l.startsWith("site visit")) return 1;
+                      if(e.type==="job") return 2;
+                      if(e.type==="followup") return 3;
+                      if(l.startsWith("market event")||l.startsWith("networking")||l.startsWith("trade show")) return 4;
+                      if(l.startsWith("proposal")) return 5;
+                      if(e.type==="campaign") return 6;
+                      if(l.startsWith("phone call")) return 7;
+                      if(l.startsWith("linkedin")) return 8;
+                      if(l.startsWith("other")) return 9;
+                      if(l.startsWith("email")||e.color==="#4b5563") return 10;
+                      return 5;
+                    };
+                    var sorted = events.slice().sort(function(a,b){ return getPriority(a)-getPriority(b); });
+                    var display = sorted.slice(0,3);
                     return display;
                   })().map(function(ev,ei){
                     return (
@@ -4212,6 +4276,8 @@ function App({demoMode, onSignOut}) {
             );
           })}
         </div>
+        </>
+        )}
       </div>
     );
   };
@@ -5346,6 +5412,7 @@ function App({demoMode, onSignOut}) {
           </button>
         </div>
       )}
+
     </div>
   );
 }
