@@ -4917,14 +4917,15 @@ function App({demoMode, onSignOut}) {
             const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
 
             // 1. Unique contacts touched this week
+            // Parse YYYY-MM-DD without timezone shift
+            const parseLocalDate = d => { if(!d) return null; const p=d.split("-"); return p.length===3?new Date(parseInt(p[0]),parseInt(p[1])-1,parseInt(p[2])):new Date(d); };
             const touchedConIds = new Set();
             const touchedConDetails = [];
             data.accounts.forEach(acc=>acc.contacts.forEach(con=>{
-              const weekActs = (con.activities||[]).filter(act=>act.date && new Date(act.date)>=weekStart);
+              const weekActs = (con.activities||[]).filter(act=>act.date && parseLocalDate(act.date)>=weekStart);
               if(weekActs.length>0) {
                 touchedConIds.add(con.id);
-                // Get most recent activity type this week
-                const latest = weekActs.sort((a,b)=>new Date(b.date)-new Date(a.date))[0];
+                const latest = weekActs.sort((a,b)=>parseLocalDate(b.date)-parseLocalDate(a.date))[0];
                 touchedConDetails.push({con, acc, type: latest.type, date: latest.date});
               }
             }));
@@ -4946,7 +4947,7 @@ function App({demoMode, onSignOut}) {
             const newContactDetails = [];
             data.accounts.forEach(function(acc){
               (acc.contacts||[]).forEach(function(con){
-                if(con.createdAt && new Date(con.createdAt)>=twoWeeksAgo){
+                if(con.createdAt && parseLocalDate(con.createdAt.slice(0,10))>=twoWeeksAgo){
                   newContactDetails.push({con, acc, createdAt: con.createdAt});
                 }
               });
