@@ -1327,6 +1327,7 @@ function OutlookSyncModal({ data, upd, closeModal, demoMode }) {
   const [saved,      setSaved]      = React.useState(false);
   const [tab,        setTab]        = React.useState("all");   // all | email_sent | email_received | calendar | skipped
   const [skippedItems, setSkippedItems] = React.useState([]); // previously skipped items loaded from Supabase
+  const [skippedSearch, setSkippedSearch] = React.useState("");
 
   const SYNC_URL = "/.netlify/functions/outlook-sync";
   const AUTH_URL = "/.netlify/functions/outlook-auth";
@@ -1994,11 +1995,37 @@ function OutlookSyncModal({ data, upd, closeModal, demoMode }) {
       {/* Skipped items review tab */}
       {tab === "skipped" && (
         <div>
+          {/* Search bar */}
+          <div style={{marginBottom:12}}>
+            <input
+              value={skippedSearch}
+              onChange={function(e){setSkippedSearch(e.target.value);}}
+              placeholder="Search skipped items..."
+              style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #374151",background:"#1a1f2e",color:"#e2e8f0",fontSize:13,fontFamily:"inherit",boxSizing:"border-box"}}
+            />
+          </div>
           {skippedItems.length === 0 && (
             <div style={{textAlign:"center",color:"#6b7280",fontSize:13,padding:"40px 0"}}>No skipped items yet.</div>
           )}
+          {skippedItems.length > 0 && skippedSearch && (function(){
+            var matches = skippedItems.filter(function(item){
+              var q = skippedSearch.toLowerCase();
+              return (item.subject||"").toLowerCase().includes(q)
+                || (item.from&&item.from.name||"").toLowerCase().includes(q)
+                || (item.from&&item.from.email||"").toLowerCase().includes(q)
+                || (item.preview||"").toLowerCase().includes(q);
+            });
+            if(matches.length===0) return <div style={{textAlign:"center",color:"#6b7280",fontSize:13,padding:"20px 0"}}>No matches for "{skippedSearch}"</div>;
+            return null;
+          })()}
           <div style={{display:"flex",flexDirection:"column",gap:8}}>
-            {skippedItems.map(function(item) {
+            {(skippedSearch ? skippedItems.filter(function(item){
+              var q = skippedSearch.toLowerCase();
+              return (item.subject||"").toLowerCase().includes(q)
+                || (item.from&&item.from.name||"").toLowerCase().includes(q)
+                || (item.from&&item.from.email||"").toLowerCase().includes(q)
+                || (item.preview||"").toLowerCase().includes(q);
+            }) : skippedItems).map(function(item) {
               var who = item._type === "email_sent"
                 ? "To: " + (item.to||[]).map(function(t){return t.name;}).join(", ")
                 : item._type === "email_received"
@@ -4875,7 +4902,7 @@ function App({demoMode, onSignOut}) {
         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",borderBottom:`1px solid ${C.border}`,marginBottom:28,overflowX:isMobile?"auto":"visible"}}>
           <div style={{display:"flex",flexShrink:0}}>
             {(isMobile
-              ? [["pyramid","Pyramid"],["list","Accounts"],["jobs","Jobs"],["calendar","Cal"],["campaigns","Campaigns"]]
+              ? [["pyramid","Pyramid"],["list","Accounts"],["jobs","Jobs"],["campaigns","Campaigns"]]
               : [["pyramid","Tier Pyramid"],["list","Account List"],["jobs","Job List"],["calendar","Calendar"],["map","Map"],["feed","Activity Feed"],["campaigns","Campaigns"]]
             ).map(([t,l])=>(
               <button key={t} style={{...tabS(dashTab===t),whiteSpace:"nowrap",padding:isMobile?"9px 12px":"9px 18px",fontSize:isMobile?12:13}} onClick={()=>setDashTab(t)}>{l}</button>
@@ -5403,6 +5430,12 @@ function App({demoMode, onSignOut}) {
             style={{flex:2,background:C.gold,border:"none",borderRadius:10,padding:"10px 0",fontSize:13,fontWeight:700,color:"#0a0d13",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:2}}
           >
             <span style={{fontSize:20}}>＋</span>Log Activity
+          </button>
+          <button
+            onClick={()=>{setView("dash");setDashTab("calendar");setBackStack([]);setMobileMenuOpen(false);}}
+            style={{flex:1,background:dashTab==="calendar"&&view==="dash"?C.gold+"22":C.bg,border:`1px solid ${dashTab==="calendar"&&view==="dash"?C.gold+"60":C.border2}`,borderRadius:10,padding:"10px 0",fontSize:12,fontWeight:600,color:dashTab==="calendar"&&view==="dash"?C.gold:C.textLo,cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:2}}
+          >
+            <span style={{fontSize:18}}>📅</span>Cal
           </button>
           <button
             onClick={()=>{setView("dash");setBackStack([]);setMobileMenuOpen(false);}}
