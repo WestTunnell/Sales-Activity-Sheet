@@ -3520,6 +3520,95 @@ function App({demoMode, onSignOut}) {
     if(modal==="editJob") return <Modal title="Edit Job" onClose={closeModal}><JobForm isNew={false}/></Modal>;
     if(modal==="addAct")  return <Modal title="Log Activity" onClose={closeModal}><ActForm isNew={true}/></Modal>;
     if(modal==="editAct") return <Modal title="Edit Activity" onClose={closeModal}><ActForm isNew={false}/></Modal>;
+    if(modal==="newContactsList") {
+      const twoWeeksAgo2 = new Date(); twoWeeksAgo2.setDate(twoWeeksAgo2.getDate()-14); twoWeeksAgo2.setHours(0,0,0,0);
+      const newCons = [];
+      data.accounts.forEach(function(acc){
+        (acc.contacts||[]).forEach(function(con){
+          if(con.createdAt && new Date(con.createdAt)>=twoWeeksAgo2){
+            newCons.push({con, acc, createdAt:con.createdAt});
+          }
+        });
+      });
+      newCons.sort(function(a,b){return new Date(b.createdAt)-new Date(a.createdAt);});
+      // Detect source from notes
+      const getSource = function(con){
+        if(!con.notes) return "Manual";
+        var n = con.notes.toLowerCase();
+        if(n.includes("linkedin")) return "LinkedIn";
+        if(n.includes("outlook")) return "Outlook Sync";
+        if(n.includes("imported")) return "Import";
+        return "Manual";
+      };
+      return (
+        <Modal title={"New Contacts — Last 2 Weeks ("+newCons.length+")"} onClose={closeModal}>
+          <div style={{display:"flex",flexDirection:"column",gap:8}}>
+            {newCons.length===0&&<div style={{color:C.textDim,fontSize:13,textAlign:"center",padding:"20px 0"}}>No new contacts added in the last 2 weeks.</div>}
+            {newCons.map(function(item,i){
+              var source = getSource(item.con);
+              var sourceColor = source==="LinkedIn"?"#0077b5":source==="Outlook Sync"?"#7c3aed":source==="Import"?"#f59e0b":C.textDim;
+              return (
+                <div key={i} onClick={function(){setSA(item.acc.id);setSC(item.con.id);setView("contact");closeModal();}}
+                  style={{display:"flex",alignItems:"center",gap:12,padding:"10px 14px",background:C.bg,border:"1px solid "+C.border,borderRadius:8,cursor:"pointer"}}
+                  onMouseEnter={function(e){e.currentTarget.style.borderColor=C.purple;}}
+                  onMouseLeave={function(e){e.currentTarget.style.borderColor=C.border;}}
+                >
+                  <div style={{flex:1}}>
+                    <div style={{fontWeight:600,fontSize:14,color:C.textHi}}>{item.con.name}</div>
+                    <div style={{fontSize:12,color:C.textDim}}>{item.acc.name}{item.con.title?" · "+item.con.title:""}</div>
+                  </div>
+                  <div style={{textAlign:"right"}}>
+                    <div style={{fontSize:11,color:sourceColor,fontWeight:600}}>{source}</div>
+                    <div style={{fontSize:11,color:C.textDim}}>{item.createdAt.slice(0,10)}</div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </Modal>
+      );
+    }
+    if(modal==="touchedList") {
+      // Compute touched contacts for this week
+      const now2 = new Date();
+      const ws = new Date(now2); ws.setDate(now2.getDate()-(now2.getDay()===0?6:now2.getDay()-1)); ws.setHours(0,0,0,0);
+      const touched = [];
+      data.accounts.forEach(function(acc){
+        acc.contacts.forEach(function(con){
+          const weekActs = (con.activities||[]).filter(function(a){return a.date && new Date(a.date)>=ws;});
+          if(weekActs.length>0){
+            const latest = weekActs.sort(function(a,b){return new Date(b.date)-new Date(a.date);})[0];
+            touched.push({con, acc, type:latest.type, date:latest.date});
+          }
+        });
+      });
+      touched.sort(function(a,b){return new Date(b.date)-new Date(a.date);});
+      return (
+        <Modal title={"Contacts Touched This Week ("+touched.length+")"} onClose={closeModal}>
+          <div style={{display:"flex",flexDirection:"column",gap:8}}>
+            {touched.length===0&&<div style={{color:C.textDim,fontSize:13,textAlign:"center",padding:"20px 0"}}>No contacts touched this week yet.</div>}
+            {touched.map(function(item,i){
+              return (
+                <div key={i} onClick={function(){setSA(item.acc.id);setSC(item.con.id);setView("contact");closeModal();}}
+                  style={{display:"flex",alignItems:"center",gap:12,padding:"10px 14px",background:C.bg,border:"1px solid "+C.border,borderRadius:8,cursor:"pointer"}}
+                  onMouseEnter={function(e){e.currentTarget.style.borderColor=C.blue;}}
+                  onMouseLeave={function(e){e.currentTarget.style.borderColor=C.border;}}
+                >
+                  <div style={{flex:1}}>
+                    <div style={{fontWeight:600,fontSize:14,color:C.textHi}}>{item.con.name}</div>
+                    <div style={{fontSize:12,color:C.textDim}}>{item.acc.name}</div>
+                  </div>
+                  <div style={{textAlign:"right"}}>
+                    <div style={{fontSize:12,color:C.blue,fontWeight:600}}>{item.type}</div>
+                    <div style={{fontSize:11,color:C.textDim}}>{item.date}</div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </Modal>
+      );
+    }
     if(modal==="editGenAct") return (
       <Modal title="Edit Outreach Entry" onClose={closeModal}>
         <div style={{display:"flex",flexDirection:"column",gap:12}}>
@@ -4829,10 +4918,15 @@ function App({demoMode, onSignOut}) {
 
             // 1. Unique contacts touched this week
             const touchedConIds = new Set();
+            const touchedConDetails = [];
             data.accounts.forEach(acc=>acc.contacts.forEach(con=>{
-              (con.activities||[]).forEach(act=>{
-                if(act.date && new Date(act.date)>=weekStart) touchedConIds.add(con.id);
-              });
+              const weekActs = (con.activities||[]).filter(act=>act.date && new Date(act.date)>=weekStart);
+              if(weekActs.length>0) {
+                touchedConIds.add(con.id);
+                // Get most recent activity type this week
+                const latest = weekActs.sort((a,b)=>new Date(b.date)-new Date(a.date))[0];
+                touchedConDetails.push({con, acc, type: latest.type, date: latest.date});
+              }
             }));
             const weekTouches = touchedConIds.size;
 
@@ -4849,24 +4943,35 @@ function App({demoMode, onSignOut}) {
 
             // 3. New contacts added in last 2 weeks (using contact createdAt)
             const twoWeeksAgo = new Date(now); twoWeeksAgo.setDate(now.getDate()-14); twoWeeksAgo.setHours(0,0,0,0);
-            const newContacts = data.accounts.reduce((sum,acc)=>{
-              return sum + (acc.contacts||[]).filter(con=>{
-                return con.createdAt && new Date(con.createdAt)>=twoWeeksAgo;
-              }).length;
-            },0);
+            const newContactDetails = [];
+            data.accounts.forEach(function(acc){
+              (acc.contacts||[]).forEach(function(con){
+                if(con.createdAt && new Date(con.createdAt)>=twoWeeksAgo){
+                  newContactDetails.push({con, acc, createdAt: con.createdAt});
+                }
+              });
+            });
+            newContactDetails.sort(function(a,b){return new Date(b.createdAt)-new Date(a.createdAt);});
+            const newContacts = newContactDetails.length;
 
             const stats = [
-              {val:weekTouches, label:"Unique Contacts Touched This Week", color:weekTouches>0?C.blue:C.textDim},
+              {val:weekTouches, label:"Unique Contacts Touched This Week", color:weekTouches>0?C.blue:C.textDim, onClick:weekTouches>0?function(){setModal("touchedList");}:null},
               {val:outstandingTouches, label:"Campaign Touches Overdue", color:outstandingTouches>0?C.red:C.green},
-              {val:newContacts, label:"New Contacts Added Last 2 Weeks", color:newContacts>0?C.purple:C.textDim},
+              {val:newContacts, label:"New Contacts Added Last 2 Weeks", color:newContacts>0?C.purple:C.textDim, onClick:newContacts>0?function(){setModal("newContactsList");}:null},
             ];
 
             return stats.map((s,i)=>(
               <div key={i} style={{display:"flex",flex:1,minWidth:100}}>
                 {i>0&&<div style={{width:1,background:C.border,margin:"0 16px"}}/>}
-                <div style={{display:"flex",flexDirection:"column",alignItems:"center",flex:1}}>
+                <div
+                  onClick={s.onClick||null}
+                  style={{display:"flex",flexDirection:"column",alignItems:"center",flex:1,cursor:s.onClick?"pointer":"default",borderRadius:8,padding:"4px",transition:"background 0.15s"}}
+                  onMouseEnter={function(e){if(s.onClick)e.currentTarget.style.background=C.border;}}
+                  onMouseLeave={function(e){e.currentTarget.style.background="transparent";}}
+                >
                   <div style={{fontWeight:700,fontSize:28,color:s.color,lineHeight:1}}>{s.val}</div>
                   <div style={{fontSize:10,color:C.textDim,marginTop:6,textTransform:"uppercase",letterSpacing:"0.07em",textAlign:"center",whiteSpace:"normal"}}>{s.label}</div>
+                  {s.onClick&&<div style={{fontSize:10,color:s.color,marginTop:3,opacity:0.7}}>↓ view list</div>}
                 </div>
               </div>
             ));
@@ -4906,7 +5011,7 @@ function App({demoMode, onSignOut}) {
           <div style={{display:"flex",flexShrink:0}}>
             {(isMobile
               ? [["pyramid","Pyramid"],["list","Accounts"],["jobs","Jobs"],["campaigns","Campaigns"]]
-              : [["pyramid","Tier Pyramid"],["list","Account List"],["jobs","Job List"],["calendar","Calendar"],["map","Map"],["feed","Activity Feed"],["campaigns","Campaigns"]]
+              : [["pyramid","Tier Pyramid"],["list","Account List"],["jobs","Job List"],["calendar","Calendar"],["map","Map"],["campaigns","Campaigns"]]
             ).map(([t,l])=>(
               <button key={t} style={{...tabS(dashTab===t),whiteSpace:"nowrap",padding:isMobile?"9px 12px":"9px 18px",fontSize:isMobile?12:13}} onClick={()=>setDashTab(t)}>{l}</button>
             ))}
