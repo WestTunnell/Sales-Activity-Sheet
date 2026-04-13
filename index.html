@@ -2013,7 +2013,10 @@ function OutlookSyncModal({ data, upd, closeModal, demoMode }) {
               return (item.subject||"").toLowerCase().includes(q)
                 || (item.from&&item.from.name||"").toLowerCase().includes(q)
                 || (item.from&&item.from.email||"").toLowerCase().includes(q)
-                || (item.preview||"").toLowerCase().includes(q);
+                || (item._label||"").toLowerCase().includes(q)
+                || (item.date||"").includes(q)
+                || (item.to||[]).some(function(t){ return (t.name||"").toLowerCase().includes(q)||(t.email||"").toLowerCase().includes(q); })
+                || (item.attendees||[]).some(function(a){ return (a.name||"").toLowerCase().includes(q)||(a.email||"").toLowerCase().includes(q); });
             });
             if(matches.length===0) return <div style={{textAlign:"center",color:"#6b7280",fontSize:13,padding:"20px 0"}}>No matches for "{skippedSearch}"</div>;
             return null;
@@ -3034,9 +3037,9 @@ function App({demoMode, onSignOut}) {
     setModal("quickLog");
   };
 
-  const getWeekBounds = () => {
+  const getWeekBounds = (offset=0) => {
     const now=new Date(), day=now.getDay();
-    const mon=new Date(now); mon.setDate(now.getDate()-(day===0?6:day-1)); mon.setHours(0,0,0,0);
+    const mon=new Date(now); mon.setDate(now.getDate()-(day===0?6:day-1)+(offset*7)); mon.setHours(0,0,0,0);
     const sun=new Date(mon); sun.setDate(mon.getDate()+6); sun.setHours(23,59,59,999);
     return {mon,sun};
   };
