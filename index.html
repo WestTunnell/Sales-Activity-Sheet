@@ -1328,6 +1328,7 @@ function OutlookSyncModal({ data, upd, closeModal, demoMode }) {
   const [tab,        setTab]        = React.useState("all");   // all | email_sent | email_received | calendar | skipped
   const [skippedItems, setSkippedItems] = React.useState([]); // previously skipped items loaded from Supabase
   const [skippedSearch, setSkippedSearch] = React.useState("");
+  const [skippedMatches, setSkippedMatches] = React.useState({}); // id -> {con, acc}
 
   const SYNC_URL = "/.netlify/functions/outlook-sync";
   const AUTH_URL = "/.netlify/functions/outlook-auth";
@@ -1840,7 +1841,45 @@ function OutlookSyncModal({ data, upd, closeModal, demoMode }) {
         {[["all","All"],["email_sent","Sent"],["email_received","Received"],["calendar","Calendar"],["skipped","Skipped"+(skippedItems.length>0?" ("+skippedItems.length+")":"")]].map(function(pair) {
           var active = tab === pair[0];
           return (
-            <button key={pair[0]} onClick={function() { setTab(pair[0]); }}
+            <button key={pair[0]} onClick={function() {
+              setTab(pair[0]);
+              if(pair[0]==="skipped") {
+                var matches = {};
+                var allContacts = [];
+                data.accounts.forEach(function(acc){
+                  acc.contacts.forEach(function(con){
+                    if(con.email) allContacts.push({con:con, acc:acc, email:con.email.toLowerCase()});
+                  });
+                });
+                var knownDomains = {};
+                allContacts.forEach(function(c){
+                  var parts = c.email.split("@");
+                  if(parts.length===2 && !knownDomains[parts[1]]) knownDomains[parts[1]] = c;
+                });
+                skippedItems.forEach(function(item){
+                  var itemEmails = [];
+                  if(item.from&&item.from.email) itemEmails.push(item.from.email.toLowerCase());
+                  (item.to||[]).forEach(function(t){if(t.email) itemEmails.push(t.email.toLowerCase());});
+                  (item.attendees||[]).forEach(function(a){if(a.email) itemEmails.push(a.email.toLowerCase());});
+                  var found = null;
+                  // Exact email match
+                  itemEmails.forEach(function(email){
+                    if(found) return;
+                    allContacts.forEach(function(c){ if(c.email===email) found={con:c.con,acc:c.acc,matchType:"exact"}; });
+                  });
+                  // Domain match
+                  if(!found) {
+                    itemEmails.forEach(function(email){
+                      if(found) return;
+                      var domain = email.split("@")[1];
+                      if(domain && knownDomains[domain]) found={con:knownDomains[domain].con,acc:knownDomains[domain].acc,matchType:"domain"};
+                    });
+                  }
+                  if(found) matches[item.id]=found;
+                });
+                setSkippedMatches(matches);
+              }
+            }}
               style={{ padding: "7px 16px", fontSize: 13, fontWeight: active ? 700 : 400, color: active ? "#c8980a" : "#9ca3af", background: "none", border: "none", borderBottom: "2px solid " + (active ? "#c8980a" : "transparent"), cursor: "pointer", fontFamily: "inherit" }}>
               {pair[1]}
             </button>
@@ -2090,8 +2129,29 @@ function OutlookSyncModal({ data, upd, closeModal, demoMode }) {
                       <span style={{fontSize:11,color:"#6b7280"}}>{item.date}</span>
                     </div>
                     <div style={{fontSize:12,color:"#9ca3af",fontWeight:600}}>{item.subject||"No subject"}</div>
-                    <div style={{fontSize:11,color:"#4b5563"}}>{item._claudeReason}</div>
-                    <button onClick={function(){setFilteredOut(function(p){return p.filter(function(f){return f.id!==item.id;});});setItems(function(p){return p.concat([{...item,_tier:3}]);});}} style={{fontSize:11,color:"#60a5fa",background:"none",border:"none",cursor:"pointer",padding:"2px 0",marginTop:2}}>+ Move to review</button>
+                    {skippedMatches[item.id]&&(
+                      <div style={{display:"flex",alignItems:"center",gap:6,marginTop:4,padding:"4px 8px",background:"#22c55e15",border:"1px solid #22c55e40",borderRadius:6}}>
+                        <span style={{fontSize:11,color:"#22c55e",fontWeight:700}}>✓ Match Found</span>
+                        <span style={{fontSize:11,color:"#9ca3af"}}>— {skippedMatches[item.id].con.name} · {skippedMatches[item.id].acc.name}</span>
+                        <span style={{fontSize:10,color:"#6b7280",marginLeft:2}}>({skippedMatches[item.id].matchType})</span>
+                      </div>
+                    )}
+                    <div style={{display:"flex",gap:8,marginTop:4,alignItems:"center"}}>
+                      <button onClick={function(){
+                        var restored = {...item, _emails: item.from?[item.from.email]:(item.to||[]).map(function(t){return t.email;})};
+                        if(skippedMatches[item.id]){
+                          restored._matchedCon = skippedMatches[item.id].con;
+                          restored._matchedAcc = skippedMatches[item.id].acc;
+                          restored._tier = 1;
+                        } else {
+                          restored._tier = 3;
+                        }
+                        setItems(function(p){return [restored].concat(p);});
+                        setSkippedItems(function(p){return p.filter(function(s){return s.id!==item.id;});});
+                        setTab("all");
+                      }} style={{fontSize:11,color:"#a78bfa",background:"#7c3aed22",border:"1px solid #7c3aed60",borderRadius:6,cursor:"pointer",padding:"3px 10px",fontWeight:600}}>↩ Move to Review</button>
+                      <button onClick={function(){setSkippedItems(function(p){return p.filter(function(s){return s.id!==item.id;});});}} style={{fontSize:11,color:"#6b7280",background:"transparent",border:"1px solid #2a2f35",borderRadius:6,cursor:"pointer",padding:"3px 10px"}}>Remove</button>
+                    </div>
                   </div>
                 );
               })}
