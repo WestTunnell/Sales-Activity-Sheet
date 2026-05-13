@@ -1503,11 +1503,44 @@ function OutlookSyncModal({ data, upd, closeModal, demoMode }) {
 
     // Show Tier 1 + 2 immediately
     const immediateItems = tier1.concat(tier2);
-    setItems(immediateItems);
+    // ── Same-day thread collapse ─────────────────────────────────────────
+    // Normalize subject: strip Re:/Fwd: prefixes
+    const normalizeSubject = function(s) {
+      return (s||"").replace(/^(re|fwd|fw):\s*/gi, "").trim().toLowerCase();
+    };
+    // Get the primary external email for an item
+    const getExternalEmail = function(item) {
+      if(item._type === "email_received") return item.from ? item.from.email : null;
+      if(item._type === "email_sent") return (item.to||[])[0] ? item.to[0].email : null;
+      return null;
+    };
+    // Collapse: group by date + normalized subject + external email
+    // Keep only the most recent item in each group
+    const collapseKey = function(item) {
+      return item.date + "||" + normalizeSubject(item.subject) + "||" + (getExternalEmail(item)||"").toLowerCase();
+    };
+    const seen = {};
+    const deduped = [];
+    immediateItems.forEach(function(item) {
+      var key = collapseKey(item);
+      if(!seen[key]) {
+        seen[key] = item;
+        deduped.push(item);
+      } else {
+        // Keep the more recent one (prefer sent over received for same thread)
+        if(item._type === "email_sent" && seen[key]._type === "email_received") {
+          var existingIdx = deduped.indexOf(seen[key]);
+          deduped[existingIdx] = item;
+          seen[key] = item;
+        }
+      }
+    });
+
+    setItems(deduped);
 
     // Auto-set decisions for matched items
     const autoDecs = {};
-    immediateItems.forEach(function(item) {
+    deduped.forEach(function(item) {
       if (item._matchedCon) {
         autoDecs[item.id] = {
           action: "log",
