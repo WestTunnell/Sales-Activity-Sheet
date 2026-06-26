@@ -5247,7 +5247,7 @@ function App({demoMode, onSignOut}) {
                 <span style={{display:"flex",alignItems:"center",gap:5,fontSize:12,color:col}}>{dot(col)}{actLabel(ds)}</span>
                 <span style={{fontSize:12,color:C.textDim}}>{acc.jobs.length} jobs / {acc.contacts.length} contacts</span>
                 {acc.contacts.length>0&&<button onClick={e=>openQuickLog(acc.id,e)} style={{background:C.gold+"18",border:`1px solid ${C.gold}50`,borderRadius:6,color:C.gold,cursor:"pointer",fontSize:11,padding:"3px 10px",fontFamily:C.sans,fontWeight:600}}>+ Log</button>}
-                <span style={{color:C.textLo}}>></span>
+                <span style={{color:C.textLo}}>{">"}</span>
               </div>
             </div>
           );
@@ -5349,7 +5349,7 @@ function App({demoMode, onSignOut}) {
                   <div style={{display:"flex",alignItems:"center",gap:14}}>
                     {hasOD&&tag(C.red,"Overdue Follow-Up")}
                     <span style={{display:"flex",alignItems:"center",gap:5,fontSize:12,color:col}}>{dot(col)}{actLabel(ds)}</span>
-                    <span style={{color:C.textLo}}>></span>
+                    <span style={{color:C.textLo}}>{">"}</span>
                   </div>
                 </div>
               );
@@ -5378,7 +5378,7 @@ function App({demoMode, onSignOut}) {
                     <div style={{display:"flex",alignItems:"center",gap:10}}>
                       {(job.estimatedValue||(lp&&lp.amount))&&<span style={{color:C.gold,fontWeight:700}}>{fmtVal(job.estimatedValue)||lp.amount}</span>}
                       {job.dueDate&&!["Won","Lost"].includes(job.status)&&(jDiff=>jDiff<0?<span style={{...pill(C.red),fontSize:11,padding:"1px 7px"}}>OVERDUE</span>:jDiff<=7?<span style={{...pill(C.red),fontSize:11,padding:"1px 7px"}}>Due {jDiff}d</span>:jDiff<=21?<span style={{...pill(C.amber),fontSize:11,padding:"1px 7px"}}>Due {jDiff}d</span>:<span style={{fontSize:11,color:C.textDim}}>Due {jDiff}d</span>)(Math.ceil((new Date(job.dueDate)-new Date())/86400000))}
-                      <span style={{color:C.textLo}}>></span>
+                      <span style={{color:C.textLo}}>{">"}</span>
                     </div>
                   </div>
                   {job.notes&&<div style={{fontSize:13,color:C.textLo,marginTop:8}}>{job.notes}</div>}
