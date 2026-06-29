@@ -724,7 +724,7 @@ function ContactImportModal({data, upd, closeModal}) {
           return h;
         })(),
         body: JSON.stringify({
-          model: "claude-sonnet-4-20250514",
+          model: "claude-sonnet-4-6",
           max_tokens: 2000,
           messages: [{
             role: "user",
@@ -1127,7 +1127,7 @@ const AddToSalesOSForm = ({item, dec, setDecision, data, upd}) => {
         method: "POST",
         headers: {"Content-Type":"application/json"},
         body: JSON.stringify({
-          model: "claude-sonnet-4-20250514",
+          model: "claude-sonnet-4-6",
           max_tokens: 300,
           messages: [{role:"user", content:
             `Extract contact info from this email text. Return ONLY a JSON object with keys: name, title, phone, company. Use empty string "" if not found. Do not include email. Text:\n\n${text}`
@@ -1604,7 +1604,7 @@ function OutlookSyncModal({ data, upd, closeModal, demoMode }) {
           method: "POST",
           headers: {"Content-Type": "application/json"},
           body: JSON.stringify({
-            model: "claude-sonnet-4-20250514",
+            model: "claude-sonnet-4-6",
             max_tokens: 1000,
             messages: [{role: "user", content: prompt}]
           })
@@ -2390,7 +2390,7 @@ INSTRUCTIONS:
         method: "POST",
         headers: {"Content-Type":"application/json"},
         body: JSON.stringify({
-          model: "claude-sonnet-4-20250514",
+          model: "claude-sonnet-4-6",
           max_tokens: 1000,
           messages: [{role:"user", content: prompt}]
         })
@@ -2560,7 +2560,7 @@ Return ONLY the JSON array, no other text.`;
           method:"POST",
           headers:{"Content-Type":"application/json"},
           body: JSON.stringify({
-            model:"claude-sonnet-4-20250514",
+            model:"claude-sonnet-4-6",
             max_tokens:2000,
             messages:[{role:"user",content:prompt}]
           })
@@ -3230,7 +3230,7 @@ function App({demoMode, onSignOut}) {
         return h;
       })(),
         body:JSON.stringify({
-          model:"claude-sonnet-4-20250514",max_tokens:2000,
+          model:"claude-sonnet-4-6",max_tokens:2000,
           system:"You are writing a punchy weekly BD summary for West at Fairco Landscape Development (AZ/CA/NV). Keep it tight — max 250 words total. Use real names and numbers from the data. Format with === on its own line before each section header. 5 sections only: WEEK IN REVIEW (2-3 sentences on momentum), TOP ACCOUNTS (2-3 most active, one line each), PIPELINE (proposals/decisions due, one line each), NEEDS ATTENTION (overdue or cold accounts, max 3), NEXT WEEK (2-3 priorities). No fluff. Write like a BD manager texting their boss.",
           messages:[{role:"user",content:"Generate weekly BD report: "+JSON.stringify(signals)}]
         })
