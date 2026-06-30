@@ -2889,6 +2889,9 @@ function App({demoMode, onSignOut}) {
   const [accTab,  setAccTab]  = useState("contacts");
   const [dashTab, setDashTab] = useState("pyramid");
   const [statusFilter, setStatusFilter] = useState(null);
+  const [pipeTimeframe, setPipeTimeframe] = useState("12m"); // 12m | ytd | qtd | mtd | all | custom
+  const [pipeCustomStart, setPipeCustomStart] = useState("");
+  const [pipeCustomEnd, setPipeCustomEnd] = useState("");
   const [mktF,    setMktF]    = useState([]);
   const [modal,   setModal]   = useState(null);
   const [form,    setForm]    = useState({});
@@ -3001,12 +3004,36 @@ function App({demoMode, onSignOut}) {
 
   const allJobs = data.accounts.flatMap(a=>a.jobs);
   const jVal = j => { const lp=j.proposals[j.proposals.length-1]; const v=lp?parseCur(lp.amount):parseCur(j.estimatedValue); return isNaN(v)?0:v; };
-  // 12-month rolling window for KPIs
-  const now12 = new Date(); now12.setFullYear(now12.getFullYear()-1);
+
+  // Pipeline timeframe window — applies consistently to ALL jobs (not just Won/Lost)
+  const getPipeWindowBounds = () => {
+    const now = new Date();
+    let start = null, end = null;
+    if(pipeTimeframe==="12m") { start = new Date(now); start.setFullYear(start.getFullYear()-1); }
+    else if(pipeTimeframe==="ytd") { start = new Date(now.getFullYear(),0,1); }
+    else if(pipeTimeframe==="qtd") { const q = Math.floor(now.getMonth()/3); start = new Date(now.getFullYear(), q*3, 1); }
+    else if(pipeTimeframe==="mtd") { start = new Date(now.getFullYear(), now.getMonth(), 1); }
+    else if(pipeTimeframe==="all") { start = null; }
+    else if(pipeTimeframe==="custom") {
+      start = pipeCustomStart ? new Date(pipeCustomStart) : null;
+      end = pipeCustomEnd ? new Date(pipeCustomEnd+"T23:59:59") : null;
+    }
+    return {start, end};
+  };
+  const {start:pipeStart, end:pipeEnd} = getPipeWindowBounds();
+  const jobRefDate = j => {
+    // Best available date for a job: due date, else last proposal submitted date, else null
+    if(j.dueDate) return new Date(j.dueDate);
+    if(j.proposals.length>0 && j.proposals[j.proposals.length-1].submittedDate) return new Date(j.proposals[j.proposals.length-1].submittedDate);
+    return null;
+  };
   const inWindow = j => {
-    if(!["Won","Lost"].includes(j.status)) return true; // active jobs always included
-    const ref = j.dueDate ? new Date(j.dueDate) : (j.proposals.length>0 ? new Date(j.proposals[j.proposals.length-1].submittedDate||"") : null);
-    return ref && ref >= now12;
+    if(pipeTimeframe==="all") return true;
+    const ref = jobRefDate(j);
+    if(!ref) return !["Won","Lost"].includes(j.status); // no date — keep if still active, exclude if closed (can't verify timeframe)
+    if(pipeStart && ref < pipeStart) return false;
+    if(pipeEnd && ref > pipeEnd) return false;
+    return true;
   };
   const windowJobs  = allJobs.filter(inWindow);
   const decidedJobs = windowJobs.filter(j=>j.status==="Won"||j.status==="Lost");
@@ -4800,7 +4827,7 @@ function App({demoMode, onSignOut}) {
       <div>
         {statusFilter&&<div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14}}><span style={{...pill(STATUS_COLORS[statusFilter]||C.textDim),fontSize:12}}>Filtered: {statusFilter}</span><button onClick={()=>setStatusFilter(null)} style={{...btn(null,C.textLo,C.border2),padding:"3px 10px",fontSize:12}}>✕ Clear filter</button></div>}
         <div style={{fontSize:12,color:C.textDim,marginBottom:14}}>
-          {sorted.length} jobs{statusFilter?" matching filter":" in the last 12 months"}
+          {sorted.length} jobs{statusFilter?" matching filter":""}
           {noDates>0&&jobSort==="due"&&<span style={{color:C.amber,marginLeft:8}}>{noDates} missing due date</span>}
         </div>
         {sorted.map(j=>{
@@ -5007,18 +5034,31 @@ function App({demoMode, onSignOut}) {
           <div style={{marginBottom:24}}>
 
             {/* -- Row 1: Pipeline tiles -- */}
-            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8,flexWrap:"wrap",gap:8}}>
               <div style={{fontFamily:C.sans,fontSize:11,color:C.textDim,textTransform:"uppercase",letterSpacing:"0.07em"}}>Pipeline</div>
-              <div style={{fontSize:11,color:C.textDim}}>Won &amp; Lost: 12-month rolling · Active jobs: all</div>
+              <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
+                {[["12m","12 Mo"],["ytd","YTD"],["qtd","QTD"],["mtd","MTD"],["all","All Time"],["custom","Custom"]].map(function(pair){
+                  var active = pipeTimeframe===pair[0];
+                  return <button key={pair[0]} onClick={function(){setPipeTimeframe(pair[0]);}} style={{padding:"3px 10px",borderRadius:6,border:"1px solid "+(active?C.gold+"80":C.border2),background:active?C.gold+"15":"transparent",color:active?C.gold:C.textDim,fontSize:11,cursor:"pointer",fontWeight:active?700:400,fontFamily:C.sans}}>{pair[1]}</button>;
+                })}
+              </div>
             </div>
+            {pipeTimeframe==="custom" && (
+              <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:10,flexWrap:"wrap"}}>
+                <span style={{fontSize:11,color:C.textDim}}>From</span>
+                <input type="date" value={pipeCustomStart} onChange={e=>setPipeCustomStart(e.target.value)} style={{...inp,width:"auto",padding:"4px 8px",fontSize:12}}/>
+                <span style={{fontSize:11,color:C.textDim}}>To</span>
+                <input type="date" value={pipeCustomEnd} onChange={e=>setPipeCustomEnd(e.target.value)} style={{...inp,width:"auto",padding:"4px 8px",fontSize:12}}/>
+              </div>
+            )}
             <div style={{display:"flex",gap:10,marginBottom:14,flexWrap:"wrap"}}>
               {[
                 {label:"Total Bid",  val:fmt$(Math.round(totalBidVal)), color:C.textHi, border:C.border,    always:true, statusKey:null},
-                {label:"Won",        val:fmt$(Math.round(wonBidVal)),   color:C.green,  border:C.green,     val2:allJobs.filter(j=>j.status==="Won").length+" jobs", statusKey:"Won"},
-                {label:"Active",     val:fmt$(Math.round(activeBidVal)),color:C.blue,   border:C.blue,      val2:allJobs.filter(j=>j.status==="Active Pursuit").length+" jobs", statusKey:"Active Pursuit"},
-                {label:"Pending",    val:fmt$(Math.round(pendingBidVal)),color:"#c8980a",border:"#c8980a",  val2:allJobs.filter(j=>j.status==="Proposal Pending").length+" jobs", statusKey:"Proposal Pending"},
-                {label:"Budgetary",  val:fmt$(Math.round(budgetBidVal)),color:C.textLo, border:C.border,    val2:allJobs.filter(j=>j.status==="Budget / Budgetary Only").length+" jobs", statusKey:"Budget / Budgetary Only"},
-                {label:"Lost",       val:fmt$(Math.round(lostBidVal)),  color:C.red,    border:C.red,       val2:allJobs.filter(j=>j.status==="Lost").length+" jobs", statusKey:"Lost"},
+                {label:"Won",        val:fmt$(Math.round(wonBidVal)),   color:C.green,  border:C.green,     val2:windowJobs.filter(j=>j.status==="Won").length+" jobs", statusKey:"Won"},
+                {label:"Active",     val:fmt$(Math.round(activeBidVal)),color:C.blue,   border:C.blue,      val2:windowJobs.filter(j=>j.status==="Active Pursuit").length+" jobs", statusKey:"Active Pursuit"},
+                {label:"Pending",    val:fmt$(Math.round(pendingBidVal)),color:"#c8980a",border:"#c8980a",  val2:windowJobs.filter(j=>j.status==="Proposal Pending").length+" jobs", statusKey:"Proposal Pending"},
+                {label:"Budgetary",  val:fmt$(Math.round(budgetBidVal)),color:C.textLo, border:C.border,    val2:windowJobs.filter(j=>j.status==="Budget / Budgetary Only").length+" jobs", statusKey:"Budget / Budgetary Only"},
+                {label:"Lost",       val:fmt$(Math.round(lostBidVal)),  color:C.red,    border:C.red,       val2:windowJobs.filter(j=>j.status==="Lost").length+" jobs", statusKey:"Lost"},
               ].filter(t=>t.always||(parseCur(t.val)>0)).map(t=>{
                 const isActive = statusFilter===t.statusKey && t.statusKey!==null;
                 return (
