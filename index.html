@@ -771,9 +771,9 @@ function ContactImportModal({data, upd, closeModal}) {
           d.accounts.forEach(function(acc) {
             var con = acc.contacts.find(function(c){ return c.id === r.con.id; });
             if (con) {
-              if (ec.email && !con.email) con.email = ec.email;
-              if (ec.phone && !con.phone) con.phone = ec.phone;
-              if (ec.title && !con.title) con.title = ec.title;
+              if (ec.email) con.email = ec.email;
+              if (ec.phone) con.phone = ec.phone;
+              if (ec.title) con.title = ec.title;
               if (ec.notes) con.notes = (con.notes ? con.notes+" | " : "") + ec.notes;
             }
           });
@@ -2079,9 +2079,9 @@ function OutlookSyncModal({ data, upd, closeModal, demoMode }) {
           {skippedItems.length === 0 && (
             <div style={{textAlign:"center",color:"#6b7280",fontSize:13,padding:"40px 0"}}>No skipped items yet.</div>
           )}
-          {skippedItems.length > 0 && skippedSearch && (function(){
-            var matches = skippedItems.filter(function(item){
-              var q = skippedSearch.toLowerCase();
+          {(function(){
+            const q = skippedSearch.toLowerCase().trim();
+            const visibleSkipped = !q ? skippedItems : skippedItems.filter(function(item){
               return (item.subject||"").toLowerCase().includes(q)
                 || (item.from&&item.from.name||"").toLowerCase().includes(q)
                 || (item.from&&item.from.email||"").toLowerCase().includes(q)
@@ -2090,17 +2090,19 @@ function OutlookSyncModal({ data, upd, closeModal, demoMode }) {
                 || (item.to||[]).some(function(t){ return (t.name||"").toLowerCase().includes(q)||(t.email||"").toLowerCase().includes(q); })
                 || (item.attendees||[]).some(function(a){ return (a.name||"").toLowerCase().includes(q)||(a.email||"").toLowerCase().includes(q); });
             });
-            if(matches.length===0) return <div style={{textAlign:"center",color:"#6b7280",fontSize:13,padding:"20px 0"}}>No matches for "{skippedSearch}"</div>;
-            return null;
-          })()}
-          <div style={{display:"flex",flexDirection:"column",gap:8}}>
-            {(skippedSearch ? skippedItems.filter(function(item){
-              var q = skippedSearch.toLowerCase();
-              return (item.subject||"").toLowerCase().includes(q)
-                || (item.from&&item.from.name||"").toLowerCase().includes(q)
-                || (item.from&&item.from.email||"").toLowerCase().includes(q)
-                || (item.preview||"").toLowerCase().includes(q);
-            }) : skippedItems).map(function(item) {
+            if(q && visibleSkipped.length===0) {
+              return <div style={{textAlign:"center",color:"#6b7280",fontSize:13,padding:"20px 0"}}>No matches for "{skippedSearch}"</div>;
+            }
+            // Sort: matched items first, then by skippedAt date desc
+            const sortedSkipped = visibleSkipped.slice().sort(function(a,b){
+              var aMatch = skippedMatches[a.id] ? 1 : 0;
+              var bMatch = skippedMatches[b.id] ? 1 : 0;
+              if(aMatch !== bMatch) return bMatch - aMatch;
+              return (b.skippedAt||"").localeCompare(a.skippedAt||"");
+            });
+            return (
+              <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                {sortedSkipped.map(function(item) {
               var who = item._type === "email_sent"
                 ? "To: " + (item.to||[]).map(function(t){return t.name;}).join(", ")
                 : item._type === "email_received"
@@ -2136,7 +2138,9 @@ function OutlookSyncModal({ data, upd, closeModal, demoMode }) {
                 </div>
               );
             })}
-          </div>
+              </div>
+            );
+          })()}
         </div>
       )}
 
@@ -3007,12 +3011,25 @@ function App({demoMode, onSignOut}) {
   const windowJobs  = allJobs.filter(inWindow);
   const decidedJobs = windowJobs.filter(j=>j.status==="Won"||j.status==="Lost");
   const winRate     = decidedJobs.length>0 ? Math.round(decidedJobs.filter(j=>j.status==="Won").length/decidedJobs.length*100) : null;
-  const wonBidVal     = windowJobs.filter(j=>j.status==="Won").reduce((s,j)=>s+jVal(j),0);
-  const lostBidVal    = windowJobs.filter(j=>j.status==="Lost").reduce((s,j)=>s+jVal(j),0);
-  const activeBidVal  = windowJobs.filter(j=>j.status==="Active Pursuit").reduce((s,j)=>s+jVal(j),0);
-  const pendingBidVal = windowJobs.filter(j=>j.status==="Proposal Pending").reduce((s,j)=>s+jVal(j),0);
-  const budgetBidVal  = windowJobs.filter(j=>j.status==="Budget / Budgetary Only").reduce((s,j)=>s+jVal(j),0);
-  const totalBidVal   = windowJobs.reduce((s,j)=>s+jVal(j),0);
+  // Dedupe value by Project Group — same physical project bid to multiple GCs counts once toward totals
+  const dedupedVal = jobList => {
+    const seenGroups = new Set();
+    let sum = 0;
+    jobList.forEach(j => {
+      if(j.projectGroup) {
+        if(seenGroups.has(j.projectGroup)) return; // already counted this project
+        seenGroups.add(j.projectGroup);
+      }
+      sum += jVal(j);
+    });
+    return sum;
+  };
+  const wonBidVal     = dedupedVal(windowJobs.filter(j=>j.status==="Won"));
+  const lostBidVal    = dedupedVal(windowJobs.filter(j=>j.status==="Lost"));
+  const activeBidVal  = dedupedVal(windowJobs.filter(j=>j.status==="Active Pursuit"));
+  const pendingBidVal = dedupedVal(windowJobs.filter(j=>j.status==="Proposal Pending"));
+  const budgetBidVal  = dedupedVal(windowJobs.filter(j=>j.status==="Budget / Budgetary Only"));
+  const totalBidVal   = dedupedVal(windowJobs);
   const pipeSegs = [
     {key:"Won",                    val:wonBidVal,     color:C.green},
     {key:"Active Pursuit",         val:activeBidVal,  color:C.blue},
@@ -3497,8 +3514,10 @@ function App({demoMode, onSignOut}) {
     );
   };
   const JobForm = ({isNew}) => {
-    const [f, setF] = useState({name:form.name||"",status:form.status||"Active Pursuit",estimatedValue:form.estimatedValue||"",location:form.location||"",dueDate:form.dueDate||"",notes:form.notes||""});
+    const [f, setF] = useState({name:form.name||"",status:form.status||"Active Pursuit",estimatedValue:form.estimatedValue||"",location:form.location||"",dueDate:form.dueDate||"",notes:form.notes||"",projectGroup:form.projectGroup||""});
     const upF = k => e => setF(p=>({...p,[k]:e.target.value}));
+    // Suggest existing project group names for autocomplete
+    const allGroups = [...new Set(data.accounts.flatMap(a=>a.jobs.map(j=>j.projectGroup)).filter(Boolean))];
     return (
       <>
         <Field label="Job / Opportunity Name"><input style={inp} value={f.name} onChange={upF("name")}/></Field>
@@ -3510,9 +3529,16 @@ function App({demoMode, onSignOut}) {
           <Field label="Location" half><input style={inp} value={f.location} onChange={upF("location")} placeholder="Phoenix, AZ"/></Field>
           <Field label="Decision Date" half><input type="date" style={inp} value={f.dueDate} onChange={upF("dueDate")}/></Field>
         </Row>
+        <Field label="Project Group (optional)">
+          <input style={inp} value={f.projectGroup} onChange={upF("projectGroup")} placeholder="e.g. Mesa Skybridge" list="projectGroupSuggestions"/>
+          <datalist id="projectGroupSuggestions">
+            {allGroups.map(g=><option key={g} value={g}/>)}
+          </datalist>
+          <div style={{fontSize:11,color:C.textDim,marginTop:5}}>If you're bidding the same project through multiple GCs, give each job the same Project Group name. This links them and prevents double-counting the value in your pipeline totals.</div>
+        </Field>
         <Field label="Notes"><textarea style={{...inp,resize:"vertical",height:70}} value={f.notes} onChange={upF("notes")}/></Field>
         <button style={{...btn(C.gold,"#0a0d13"),width:"100%",justifyContent:"center",marginTop:4}} onClick={()=>{
-          const b={name:f.name||"New Job",status:f.status||"Active Pursuit",estimatedValue:f.estimatedValue||"",location:f.location||"",dueDate:f.dueDate||"",notes:f.notes||""};
+          const b={name:f.name||"New Job",status:f.status||"Active Pursuit",estimatedValue:f.estimatedValue||"",location:f.location||"",dueDate:f.dueDate||"",notes:f.notes||"",projectGroup:f.projectGroup.trim()||""};
           if(isNew) upd(d=>{d.accounts.find(a=>a.id===selAcc).jobs.push({id:uid(),...b,proposals:[]});return d;});
           else upd(d=>{Object.assign(d.accounts.find(a=>a.id===selAcc).jobs.find(j=>j.id===form.id),b);return d;});
           closeModal();
@@ -4800,6 +4826,18 @@ function App({demoMode, onSignOut}) {
                     {j.location&&<span>{"| "+j.location}</span>}
                     {tag(TIER_COLORS[j.accTier],"T"+j.accTier)}
                   </div>
+                  {j.projectGroup&&(function(){
+                    const linkedJobs = allJobs.filter(function(oj){return oj.projectGroup===j.projectGroup && oj.id!==j.id;});
+                    if(linkedJobs.length===0) return null;
+                    return (
+                      <div style={{marginTop:5,fontSize:11,color:"#7a5fc0",display:"flex",alignItems:"center",gap:4}}>
+                        🔗 Also bid via {linkedJobs.map(function(lj){
+                          const lAcc = data.accounts.find(function(a){return a.jobs.some(function(jj){return jj.id===lj.id;});});
+                          return lAcc?lAcc.name:"";
+                        }).filter(Boolean).join(", ")}
+                      </div>
+                    );
+                  })()}
                 </div>
                 <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:4,flexShrink:0}}>
                   {val>0&&<span style={{fontWeight:700,color:C.gold,fontSize:15}}>{fmt$(val)}</span>}
