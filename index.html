@@ -4793,10 +4793,16 @@ function App({demoMode, onSignOut}) {
     );
   };
 
-  const JobListView = ({jobSort,inWindow,jVal,setSA,setSJ,setView,data,statusFilter,setStatusFilter}) => {
+  const JobListView = ({jobSort,inWindow,jVal,setSA,setSJ,setView,data,statusFilter,setStatusFilter,pipeTimeframe}) => {
     const STATUS_ORDER={"Active Pursuit":0,"Proposal Pending":1,"Budget / Budgetary Only":2,"Won":3,"Lost":4};
+    const TF_LABEL = {"12m":"last 12 months","ytd":"year to date","qtd":"quarter to date","mtd":"month to date","all":"all time","custom":"custom range"};
     const flatJobs=data.accounts.flatMap(acc=>
-      acc.jobs.filter(j=>statusFilter ? j.status===statusFilter : ["Active Pursuit","Proposal Pending"].includes(j.status)).map(j=>{
+      acc.jobs.filter(j=>{
+        const statusOk = statusFilter ? j.status===statusFilter : ["Active Pursuit","Proposal Pending"].includes(j.status);
+        if(!statusOk) return false;
+        // Only apply timeframe window when filtering by a specific status from a pipeline tile click
+        return statusFilter ? inWindow(j) : true;
+      }).map(j=>{
         const linkedActs=acc.contacts.flatMap(c=>c.activities.filter(a=>a.jobId===j.id)).sort((a,b)=>new Date(b.date)-new Date(a.date));
         const linkedCons=acc.contacts.filter(c=>c.activities.some(a=>a.jobId===j.id));
         return {...j,accId:acc.id,accName:acc.name,accTier:acc.tier,linkedAct:linkedActs[0]||null,linkedCons};
@@ -4817,7 +4823,7 @@ function App({demoMode, onSignOut}) {
     });
     if(sorted.length===0) return (
       <div>
-        {statusFilter&&<div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14}}><span style={{...pill(STATUS_COLORS[statusFilter]||C.textDim),fontSize:12}}>Filtered: {statusFilter}</span><button onClick={()=>setStatusFilter(null)} style={{...btn(null,C.textLo,C.border2),padding:"3px 10px",fontSize:12}}>✕ Clear</button></div>}
+        {statusFilter&&<div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14,flexWrap:"wrap"}}><span style={{...pill(STATUS_COLORS[statusFilter]||C.textDim),fontSize:12}}>Filtered: {statusFilter}</span><span style={{fontSize:12,color:C.textDim}}>({TF_LABEL[pipeTimeframe]||"12 months"})</span><button onClick={()=>setStatusFilter(null)} style={{...btn(null,C.textLo,C.border2),padding:"3px 10px",fontSize:12}}>✕ Clear</button></div>}
         <div style={{...card,color:C.textDim,textAlign:"center",padding:48,fontSize:13}}>No jobs found.</div>
       </div>
     );
@@ -4825,7 +4831,7 @@ function App({demoMode, onSignOut}) {
     const today=new Date();
     return (
       <div>
-        {statusFilter&&<div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14}}><span style={{...pill(STATUS_COLORS[statusFilter]||C.textDim),fontSize:12}}>Filtered: {statusFilter}</span><button onClick={()=>setStatusFilter(null)} style={{...btn(null,C.textLo,C.border2),padding:"3px 10px",fontSize:12}}>✕ Clear filter</button></div>}
+        {statusFilter&&<div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14,flexWrap:"wrap"}}><span style={{...pill(STATUS_COLORS[statusFilter]||C.textDim),fontSize:12}}>Filtered: {statusFilter}</span><span style={{fontSize:12,color:C.textDim}}>({TF_LABEL[pipeTimeframe]||"12 months"})</span><button onClick={()=>setStatusFilter(null)} style={{...btn(null,C.textLo,C.border2),padding:"3px 10px",fontSize:12}}>✕ Clear filter</button></div>}
         <div style={{fontSize:12,color:C.textDim,marginBottom:14}}>
           {sorted.length} jobs{statusFilter?" matching filter":""}
           {noDates>0&&jobSort==="due"&&<span style={{color:C.amber,marginLeft:8}}>{noDates} missing due date</span>}
@@ -5331,7 +5337,7 @@ function App({demoMode, onSignOut}) {
           );
         })}
 
-        {dashTab==="jobs"&&<JobListView jobSort={jobSort} inWindow={inWindow} jVal={jVal} setSA={setSA} setSJ={setSJ} setView={setView} data={data} statusFilter={statusFilter} setStatusFilter={setStatusFilter}/>}
+        {dashTab==="jobs"&&<JobListView jobSort={jobSort} inWindow={inWindow} jVal={jVal} setSA={setSA} setSJ={setSJ} setView={setView} data={data} statusFilter={statusFilter} setStatusFilter={setStatusFilter} pipeTimeframe={pipeTimeframe}/>}
         {dashTab==="calendar"&&<CalendarView data={data} setSA={setSA} setSC={setSC} setSJ={setSJ} setView={setView} setAccTab={setAccTab}/>}
         {dashTab==="map"&&<MapView data={data} setSA={setSA} setSJ={setSJ} setView={setView}/>}
         {dashTab==="feed"&&<ActivityFeedView feedFilter={feedFilter} data={data} setSA={setSA} setSC={setSC} setSJ={setSJ} setView={setView} setAccTab={setAccTab}/>}
