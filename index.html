@@ -2916,6 +2916,9 @@ function App({demoMode, onSignOut}) {
   const [reportFormat,  setReportFormat]  = useState("copy");
   const [reportWeekOffset, setReportWeekOffset] = useState(0);
   const [reportCopied,  setReportCopied]  = useState(false);
+  const [pipeReport, setPipeReport] = useState(null);
+  const [pipeReportLoading, setPipeReportLoading] = useState(false);
+  const [pipeReportCopied, setPipeReportCopied] = useState(false);
   const [showGenLog,    setShowGenLog]    = useState(false);
   const [genLogForm,    setGenLogForm]    = useState({type:"LinkedIn",otherType:"",notes:"",date:new Date().toISOString().slice(0,10),count:1,contactId:null,countAsCampaign:false});
   const [showCampaignForm, setShowCampaignForm] = useState(null); // contactId or null
@@ -3285,6 +3288,115 @@ function App({demoMode, onSignOut}) {
     } catch(e){setWeeklyReport("Could not generate report. Check connection and try again.");}
     setReportLoading(false);
   };
+  const generatePipelineReport = async () => {
+    setPipeReportLoading(true); setPipeReport(null);
+    try {
+      const now = new Date();
+      const tfLabel = {"12m":"last 12 months","ytd":"year to date","qtd":"quarter to date","mtd":"month to date","all":"all time","custom":"custom range"}[pipeTimeframe]||"last 12 months";
+
+      // Build rich data package for Claude
+      const byAccount = {};
+      data.accounts.forEach(acc => {
+        windowJobs.forEach(j => {
+          if(!acc.jobs.find(jj=>jj.id===j.id)) return;
+          if(!byAccount[acc.name]) byAccount[acc.name] = {tier:acc.tier, jobs:[], markets:acc.markets||[]};
+          byAccount[acc.name].jobs.push({name:j.name, status:j.status, value:jVal(j), dueDate:j.dueDate, location:j.location, proposals:j.proposals});
+        });
+      });
+
+      const accountSummaries = Object.entries(byAccount).sort((a,b)=>{
+        const aVal = a[1].jobs.reduce((s,j)=>s+j.value,0);
+        const bVal = b[1].jobs.reduce((s,j)=>s+j.value,0);
+        return bVal-aVal;
+      }).map(([name, info])=>{
+        const total = info.jobs.reduce((s,j)=>s+j.value,0);
+        const won = info.jobs.filter(j=>j.status==="Won").reduce((s,j)=>s+j.value,0);
+        const pending = info.jobs.filter(j=>j.status==="Proposal Pending").reduce((s,j)=>s+j.value,0);
+        const active = info.jobs.filter(j=>j.status==="Active Pursuit").reduce((s,j)=>s+j.value,0);
+        const lost = info.jobs.filter(j=>j.status==="Lost").reduce((s,j)=>s+j.value,0);
+        const upcoming = info.jobs.filter(j=>j.dueDate && !["Won","Lost"].includes(j.status)).map(j=>`${j.name} — due ${j.dueDate}`).join("; ");
+        return `${name} (T${info.tier}): $${Math.round(total/1000)}K total | Won: $${Math.round(won/1000)}K | Pending: $${Math.round(pending/1000)}K | Active: $${Math.round(active/1000)}K | Lost: $${Math.round(lost/1000)}K${upcoming?" | Upcoming: "+upcoming:""}`;
+      }).join("\n");
+
+      const decisionsNext30 = windowJobs.filter(j=>j.dueDate&&!["Won","Lost"].includes(j.status)).map(j=>{
+        const acc = data.accounts.find(a=>a.jobs.find(jj=>jj.id===j.id));
+        const days = Math.ceil((new Date(j.dueDate)-now)/86400000);
+        return {name:j.name, acc:acc?acc.name:"", days, value:jVal(j), status:j.status, dueDate:j.dueDate};
+      }).filter(j=>j.days<=30).sort((a,b)=>a.days-b.days);
+
+      const signals = {
+        reportDate: now.toLocaleDateString("en-US",{month:"long",day:"numeric",year:"numeric"}),
+        company: "Fairco Landscape Development",
+        preparedBy: data.settings&&data.settings.userName||"West",
+        timeframe: tfLabel,
+        totalPipeline: fmt$(Math.round(totalBidVal)),
+        won: fmt$(Math.round(wonBidVal)),
+        pending: fmt$(Math.round(pendingBidVal)),
+        active: fmt$(Math.round(activeBidVal)),
+        lost: fmt$(Math.round(lostBidVal)),
+        budgetary: fmt$(Math.round(budgetBidVal)),
+        totalAccounts: data.accounts.length,
+        activeJobs: windowJobs.filter(j=>["Active Pursuit","Proposal Pending"].includes(j.status)).length,
+        accountBreakdown: accountSummaries,
+        decisionsNext30Days: decisionsNext30.map(function(j){ return j.name+" @ "+j.acc+" — "+j.status+" — $"+Math.round(j.value/1000)+"K — due "+j.dueDate+" ("+(j.days<0?Math.abs(j.days)+" days overdue":j.days+" days")+")"; }).join("\n"),
+        overdueFollowUps: alerts.length,
+      };
+
+      const res = await fetch("https://api.anthropic.com/v1/messages",{
+        method:"POST",
+        headers:(function(){
+          var key=localStorage.getItem('fairco_api_key')||"";
+          var h={"Content-Type":"application/json","anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"};
+          if(key) h["x-api-key"]=key;
+          return h;
+        })(),
+        body:JSON.stringify({
+          model:"claude-sonnet-4-6",
+          max_tokens:2500,
+          system:`You are writing a BD Pipeline Outlook report for an internal annual meeting at Fairco Landscape Development, a commercial landscape construction company operating in AZ/CA/NV. The audience is ownership and senior leadership (Gene Bearinger, Frank Tunnell). 
+
+Write this as a professional internal memo — direct, confident, no fluff. Use real numbers from the data. Format with === on its own line before each section header. Sections:
+
+PIPELINE OVERVIEW — 2-3 sentences on total position and overall health
+CURRENT STANDING — Won, Pending, Active Pursuit figures with context
+KEY ACCOUNTS — Top 4-5 accounts by value, one punchy line each on our position
+DECISIONS DUE — Upcoming proposal decisions in the next 30 days, urgency/opportunity
+RISKS & CONCENTRATION — Any over-reliance on single accounts, lost deals worth noting
+OUTLOOK & PRIORITIES — 3-4 forward-looking priorities for the team
+
+Keep the entire report under 400 words. Write like a BD director presenting to ownership — confident, grounded in the numbers, no corporate filler.`,
+          messages:[{role:"user",content:"Generate BD Pipeline Outlook report for annual meeting: "+JSON.stringify(signals)}]
+        })
+      });
+      const rd = await res.json();
+      const txt = (rd.content||[]).filter(b=>b.type==="text").map(b=>b.text).join("");
+      setPipeReport(txt||"No report content returned.");
+    } catch(e) {
+      setPipeReport("Could not generate report: "+e.message);
+    }
+    setPipeReportLoading(false);
+  };
+
+  const printPipelineReport = () => {
+    if(!pipeReport) return;
+    const w = window.open("","_blank");
+    const esc = pipeReport.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+    const tfLabel = {"12m":"Last 12 Months","ytd":"Year to Date","qtd":"Quarter to Date","mtd":"Month to Date","all":"All Time","custom":"Custom Range"}[pipeTimeframe]||"";
+    const html2 = "<!DOCTYPE html><html><head><title>Fairco BD Pipeline Outlook<"+"/title>"
+      +"<style>body{font-family:Georgia,serif;max-width:820px;margin:48px auto;color:#1a1820;font-size:15px;line-height:1.8;}"
+      +"h1{font-size:26px;margin-bottom:4px;} h2{font-size:13px;color:#6b7280;font-weight:400;margin:0 0 8px;} .meta{font-size:12px;color:#9ca3af;margin-bottom:32px;padding-bottom:16px;border-bottom:2px solid #c8980a;}"
+      +"pre{white-space:pre-wrap;font-family:Georgia,serif;font-size:14px;line-height:1.9;}"
+      +"hr{border:none;border-top:1px solid #e0dde0;margin:18px 0;}"
+      +"@media print{body{margin:24px;}}<"+"/style><"+"/head><body>"
+      +"<h1>Fairco Landscape Development<"+"/h1>"
+      +"<h2>BD Pipeline Outlook — "+tfLabel+"<"+"/h2>"
+      +"<div class='meta'>Prepared by "+(data.settings&&data.settings.userName||"West")+" &nbsp;·&nbsp; "+new Date().toLocaleDateString("en-US",{month:"long",day:"numeric",year:"numeric"})+"<"+"/div>"
+      +"<pre>"+esc+"<"+"/pre>"
+      +"<"+"script>window.onload=function(){window.print();};<"+"/script>"
+      +"<"+"/body><"+"/html>";
+    w.document.write(html2); w.document.close();
+  };
+
   const copyReport=()=>{
     if(!weeklyReport)return;
     navigator.clipboard.writeText(weeklyReport).then(()=>{setReportCopied(true);setTimeout(()=>setReportCopied(false),2500);});
@@ -5082,6 +5194,44 @@ function App({demoMode, onSignOut}) {
 
 
 
+          </div>
+        )}
+
+        {/* -- Pipeline Report -- */}
+        {totalBidVal>0&&(
+          <div style={{background:C.surface,border:"1px solid "+C.border,borderRadius:12,padding:"16px 20px",marginBottom:20}}>
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:10,marginBottom:pipeReport||pipeReportLoading?16:0}}>
+              <div>
+                <div style={{fontFamily:C.serif,fontSize:17,color:C.textHi}}>BD Pipeline Outlook</div>
+                <div style={{fontSize:12,color:C.textDim,marginTop:2}}>Annual meeting report — {({"12m":"Last 12 Months","ytd":"Year to Date","qtd":"Quarter to Date","mtd":"Month to Date","all":"All Time","custom":"Custom Range"})[pipeTimeframe]||"Last 12 Months"}</div>
+              </div>
+              <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+                {pipeReport&&<button onClick={printPipelineReport} style={{...btn(null,C.blue,C.border2),fontSize:12,padding:"5px 14px"}}>🖨 Print / PDF</button>}
+                {pipeReport&&<button onClick={()=>{navigator.clipboard.writeText(pipeReport).then(()=>{setPipeReportCopied(true);setTimeout(()=>setPipeReportCopied(false),2500);});}} style={{...btn(null,pipeReportCopied?C.green:C.textLo,pipeReportCopied?C.green+"40":C.border2),fontSize:12,padding:"5px 14px"}}>{pipeReportCopied?"✓ Copied":"Copy"}</button>}
+                {pipeReport&&<button onClick={()=>setPipeReport(null)} style={{...btn(null,C.textLo,C.border2),fontSize:12,padding:"5px 14px"}}>Clear</button>}
+                <button onClick={generatePipelineReport} disabled={pipeReportLoading} style={{...btn(pipeReportLoading?C.border:C.gold,pipeReportLoading?C.textDim:"#0a0d13"),minWidth:140,justifyContent:"center",opacity:pipeReportLoading?0.6:1}}>
+                  {pipeReportLoading?"Generating...":pipeReport?"Regenerate":"✦ Generate Outlook"}
+                </button>
+              </div>
+            </div>
+            {pipeReportLoading&&(
+              <div style={{display:"flex",alignItems:"center",gap:12,padding:"18px 0",color:C.textDim,fontSize:13}}>
+                <div style={{width:18,height:18,border:"2px solid "+C.gold,borderTopColor:"transparent",borderRadius:"50%",animation:"spin 0.8s linear infinite"}}/>
+                Analyzing your pipeline and drafting outlook...
+              </div>
+            )}
+            {pipeReport&&!pipeReportLoading&&(
+              <div style={{background:C.bg,border:"1px solid "+C.border,borderRadius:10,padding:"20px 24px",fontFamily:"Georgia,serif",fontSize:14,lineHeight:1.9,color:C.textHi,whiteSpace:"pre-wrap",maxHeight:520,overflowY:"auto"}}>
+                {pipeReport.split("\n").map(function(line,i){
+                  if(line.trim()==="===") return <hr key={i} style={{border:"none",borderTop:"1px solid "+C.border,margin:"16px 0"}}/>;
+                  if(/^[A-Z &]+$/.test(line.trim())&&line.trim().length>3) return <div key={i} style={{fontFamily:C.sans,fontWeight:700,fontSize:12,color:C.gold,textTransform:"uppercase",letterSpacing:"0.1em",marginTop:20,marginBottom:6}}>{line}</div>;
+                  return <span key={i}>{line}{"\n"}</span>;
+                })}
+              </div>
+            )}
+            {!pipeReport&&!pipeReportLoading&&(
+              <div style={{fontSize:13,color:C.textDim}}>Generate a Claude-written pipeline outlook for your annual meeting — covers total position, key accounts, upcoming decisions, risk concentration, and forward priorities.</div>
+            )}
           </div>
         )}
 
