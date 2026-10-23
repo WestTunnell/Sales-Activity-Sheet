@@ -38,6 +38,19 @@ select option{background:#ffffff;}
 </head>
 <body>
 <div id="root"></div>
+<div id="err-overlay" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:#1e2229;color:#f87171;font-family:monospace;font-size:13px;padding:32px;z-index:99999;overflow:auto;white-space:pre-wrap;"></div>
+<script>
+window.__showErr = function(msg) {
+  var el = document.getElementById('err-overlay');
+  if (el) { el.style.display='block'; el.textContent = '⚠ SalesOS failed to load\n\n' + msg + '\n\nPlease send this error to your developer.'; }
+};
+window.onerror = function(msg, src, line, col, err) {
+  window.__showErr((err && err.stack ? err.stack : msg) + '\n\nSource: ' + src + ':' + line);
+};
+window.addEventListener('unhandledrejection', function(e) {
+  window.__showErr('Unhandled promise rejection:\n' + (e.reason && e.reason.stack ? e.reason.stack : String(e.reason)));
+});
+</script>
 <script type="text/babel">
 const {useState,useEffect,useRef} = React;
 const useIsMobile = () => {
@@ -55,7 +68,13 @@ const SUPABASE_URL = "https://mxtmlgifukdlomuothzi.supabase.co";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im14dG1sZ2lmdWtkbG9tdW90aHppIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMxMDgyNTEsImV4cCI6MjA4ODY4NDI1MX0.LWdPyXX24iaeNtKPrqCfg6r-BDdAwUImmp08zpfLRCc";
 const SB_TABLE = "app_data";
 const SB_ROW_ID = "salesos_main";
-const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+let sb;
+try {
+  sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+} catch(e) {
+  window.__showErr && window.__showErr('Supabase failed to initialize:\n' + e.message + '\n\nThe Supabase CDN script may not have loaded. Check your network connection.');
+  throw e;
+}
 const DEFAULT_MARKETS = ["General Contractor","Construction Manager","Owner / Developer","Home Builder","Subcontractor","Design-Build","Healthcare","Industrial","Government / Public","Mixed-Use / Multifamily"];
 const JOB_STATUSES   = ["Active Pursuit","Proposal Pending","Won","Lost","Budget / Budgetary Only"];
 const STATUS_COLORS  = {"Active Pursuit":"#7EB8F7","Proposal Pending":"#E8C547","Won":"#22c55e","Lost":"#ef4444","No Bid":"#f97316","Budget / Budgetary Only":"#6b7280"};
@@ -5781,7 +5800,12 @@ function Root() {
   return <App demoMode={demoMode} onSignOut={()=>{localStorage.removeItem("salesos_authed");setAuthed(false);setDemoMode(false);}} />;
 }
 
-ReactDOM.createRoot(document.getElementById("root")).render(<Root/>);
+try {
+  ReactDOM.createRoot(document.getElementById("root")).render(<Root/>);
+} catch(e) {
+  window.__showErr && window.__showErr('ReactDOM.createRoot failed:\n' + (e.stack || e.message));
+  throw e;
+}
 </script>
 </body>
 </html>
