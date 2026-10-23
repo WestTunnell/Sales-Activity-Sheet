@@ -2937,6 +2937,7 @@ function App({demoMode, onSignOut}) {
   const [genLogForm,    setGenLogForm]    = useState({type:"LinkedIn",otherType:"",notes:"",date:new Date().toISOString().slice(0,10),count:1,contactId:null,countAsCampaign:false});
   const [showCampaignForm, setShowCampaignForm] = useState(null); // contactId or null
   const [syncStatus, setSyncStatus] = useState("idle"); // idle | saving | saved | error
+  const [showCsvExport, setShowCsvExport] = useState(false);
   const fileRef = useRef();
 
   useEffect(()=>{
@@ -3098,7 +3099,6 @@ function App({demoMode, onSignOut}) {
     } catch(e){alert("Export failed: "+e.message);}
   };
 
-  const [showCsvExport, setShowCsvExport] = React.useState(false);
   const csvEscape = v => { if(v==null) return ""; const s=String(v); if(s.includes(",")||s.includes('"')||s.includes("\n")) return '"'+s.replace(/"/g,'""')+'"'; return s; };
   const toCSV = rows => rows.map(r=>r.map(csvEscape).join(",")).join("\n");
   const downloadCSV = (rows,filename) => { const blob=new Blob([toCSV(rows)],{type:"text/csv"}); const url=URL.createObjectURL(blob); const a=document.createElement("a"); a.href=url; a.download=filename; document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url); };
