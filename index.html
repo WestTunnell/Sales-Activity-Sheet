@@ -5,10 +5,10 @@
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
 <title>SalesOS</title>
 <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=DM+Sans:wght@400;600;700&display=swap" rel="stylesheet"/>
-<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-<script src="https://unpkg.com/@babel/standalone@7/babel.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.26.4/babel.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.4/dist/umd/supabase.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0;}
 body{background:#f0eff0;color:#1e2229;font-family:'DM Sans','Helvetica Neue',sans-serif;font-size:14px;}
@@ -40,14 +40,24 @@ select option{background:#ffffff;}
 <div id="root"></div>
 <div id="err-overlay" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:#1e2229;color:#f87171;font-family:monospace;font-size:13px;padding:32px;z-index:99999;overflow:auto;white-space:pre-wrap;"></div>
 <script>
+var __errSet = false;
 window.__showErr = function(msg) {
+  __errSet = true;
   var el = document.getElementById('err-overlay');
   if (el) { el.style.display='block'; el.textContent = '⚠ SalesOS failed to load\n\n' + msg + '\n\nPlease send this error to your developer.'; }
 };
 window.onerror = function(msg, src, line, col, err) {
-  window.__showErr((err && err.stack ? err.stack : msg) + '\n\nSource: ' + src + ':' + line);
+  if (__errSet) return true; // don't overwrite a real error
+  var detail = (err && err.stack) ? err.stack : msg;
+  // If it's just a cross-origin masked error, show a CDN load message
+  if (msg === 'Script error.' || msg === 'Script error') {
+    window.__showErr('A script failed to load from CDN.\n\nMissing globals:\n  React=' + (typeof React) + '\n  ReactDOM=' + (typeof ReactDOM) + '\n  Babel=' + (typeof Babel) + '\n  supabase=' + (typeof supabase) + '\n\nOriginal: ' + detail + ' (src=' + src + ':' + line + ')');
+  } else {
+    window.__showErr(detail + '\n\nSource: ' + src + ':' + line);
+  }
 };
 window.addEventListener('unhandledrejection', function(e) {
+  if (__errSet) return;
   window.__showErr('Unhandled promise rejection:\n' + (e.reason && e.reason.stack ? e.reason.stack : String(e.reason)));
 });
 </script>
