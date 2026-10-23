@@ -40,29 +40,12 @@ select option{background:#ffffff;}
 <div id="root"></div>
 <div id="err-overlay" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:#1e2229;color:#f87171;font-family:monospace;font-size:13px;padding:32px;z-index:99999;overflow:auto;white-space:pre-wrap;"></div>
 <script>
-var __errSet = false;
 window.__showErr = function(msg) {
-  __errSet = true;
   var el = document.getElementById('err-overlay');
   if (el) { el.style.display='block'; el.textContent = '⚠ SalesOS failed to load\n\n' + msg + '\n\nPlease send this error to your developer.'; }
 };
-window.onerror = function(msg, src, line, col, err) {
-  if (__errSet) return true; // don't overwrite a real error
-  var detail = (err && err.stack) ? err.stack : msg;
-  // If it's just a cross-origin masked error, show a CDN load message
-  if (msg === 'Script error.' || msg === 'Script error') {
-    window.__showErr('A script failed to load from CDN.\n\nMissing globals:\n  React=' + (typeof React) + '\n  ReactDOM=' + (typeof ReactDOM) + '\n  Babel=' + (typeof Babel) + '\n  supabase=' + (typeof supabase) + '\n\nOriginal: ' + detail + ' (src=' + src + ':' + line + ')');
-  } else {
-    window.__showErr(detail + '\n\nSource: ' + src + ':' + line);
-  }
-};
-window.addEventListener('unhandledrejection', function(e) {
-  if (__errSet) return;
-  window.__showErr('Unhandled promise rejection:\n' + (e.reason && e.reason.stack ? e.reason.stack : String(e.reason)));
-});
 </script>
-<script id="app-src" type="text/plain">
-try {
+<script type="text/babel">
 const {useState,useEffect,useRef} = React;
 const useIsMobile = () => {
   const [mob, setMob] = useState(window.innerWidth <= 768);
@@ -5818,31 +5801,6 @@ class ErrorBoundary extends React.Component {
 }
 
   ReactDOM.createRoot(document.getElementById("root")).render(<ErrorBoundary><Root/></ErrorBoundary>);
-} catch(__e) {
-  var __msg = __e && __e.stack ? __e.stack : String(__e);
-  window.__showErr ? window.__showErr('JS error inside app:\n\n' + __msg) : alert(__msg);
-}
-</script>
-<script>
-(function() {
-  try {
-    var src = document.getElementById('app-src').textContent;
-    var compiled;
-    try {
-      compiled = Babel.transform(src, { presets: ['react'], filename: 'app.jsx' }).code;
-    } catch(babelErr) {
-      window.__showErr('Babel compile error:\n\n' + (babelErr.message || String(babelErr)));
-      return;
-    }
-    try {
-      (new Function(compiled))();
-    } catch(runErr) {
-      window.__showErr('Runtime error:\n\n' + (runErr.stack || runErr.message || String(runErr)));
-    }
-  } catch(outerErr) {
-    window.__showErr('Loader error:\n\n' + (outerErr.message || String(outerErr)));
-  }
-})();
 </script>
 </body>
 </html>
