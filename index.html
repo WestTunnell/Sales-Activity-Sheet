@@ -5805,7 +5805,19 @@ function Root() {
   return <App demoMode={demoMode} onSignOut={()=>{localStorage.removeItem("salesos_authed");setAuthed(false);setDemoMode(false);}} />;
 }
 
-  ReactDOM.createRoot(document.getElementById("root")).render(<Root/>);
+class ErrorBoundary extends React.Component {
+  constructor(props) { super(props); this.state = { err: null }; }
+  static getDerivedStateFromError(e) { return { err: e }; }
+  componentDidCatch(e, info) {
+    window.__showErr && window.__showErr('React render error:\n\n' + (e && e.stack ? e.stack : String(e)) + '\n\nComponent stack:\n' + (info && info.componentStack ? info.componentStack : ''));
+  }
+  render() {
+    if (this.state.err) return null;
+    return this.props.children;
+  }
+}
+
+  ReactDOM.createRoot(document.getElementById("root")).render(<ErrorBoundary><Root/></ErrorBoundary>);
 } catch(__e) {
   var __msg = __e && __e.stack ? __e.stack : String(__e);
   window.__showErr ? window.__showErr('JS error inside app:\n\n' + __msg) : alert(__msg);
