@@ -4,15 +4,15 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
 <title>SalesOS</title>
-<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=DM+Sans:wght@400;600;700&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Lato:wght@400;700;900&display=swap" rel="stylesheet"/>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.26.4/babel.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.4/dist/umd/supabase.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0;}
-body{background:#f0eff0;color:#1e2229;font-family:'DM Sans','Helvetica Neue',sans-serif;font-size:14px;}
-button,input,select,textarea{font-family:'DM Sans','Helvetica Neue',sans-serif;}
+body{background:#F2EFE6;color:#1A1A1A;font-family:'Lato','Helvetica Neue',sans-serif;font-size:14px;}
+button,input,select,textarea{font-family:'Lato','Helvetica Neue',sans-serif;}
 input[type="date"]::-webkit-calendar-picker-indicator{filter:invert(0.2);}
 select option{background:#ffffff;}
 ::-webkit-scrollbar{width:6px;}
@@ -65,14 +65,14 @@ const SB_ROW_ID = "salesos_main";
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const DEFAULT_MARKETS = ["General Contractor","Construction Manager","Owner / Developer","Home Builder","Subcontractor","Design-Build","Healthcare","Industrial","Government / Public","Mixed-Use / Multifamily"];
 const JOB_STATUSES   = ["Active Pursuit","Proposal Pending","Won","Lost","Budget / Budgetary Only"];
-const STATUS_COLORS  = {"Active Pursuit":"#7EB8F7","Proposal Pending":"#E8C547","Won":"#22c55e","Lost":"#ef4444","No Bid":"#f97316","Budget / Budgetary Only":"#6b7280"};
+const STATUS_COLORS  = {"Active Pursuit":"#2A6DB5","Proposal Pending":"#FEBC11","Won":"#16a34a","Lost":"#dc2626","No Bid":"#f97316","Budget / Budgetary Only":"#6b7280"};
 const ACTIVITY_TYPES = ["Email","Proposal","Phone Call","Coffee","Lunch","Happy Hour","Market Event","Entertainment","Site Visit","LinkedIn Connection Request","LinkedIn Message","LinkedIn Engagement","Other"];
 const TIERS          = [1,2,3];
 const TIER_LABELS    = {1:"Priority",2:"Developing",3:"Long Game"};
-const TIER_COLORS    = {1:"#E8C547",2:"#7EB8F7",3:"#9B8FD4"};
+const TIER_COLORS    = {1:"#FEBC11",2:"#2A6DB5",3:"#9B8FD4"};
 const PROPOSAL_OUTCOMES = ["Pending","Won","Lost","No Bid","Revised"];
 const CONTACT_ROLES   = ["Unknown","Decision Maker","Budget Holder","Champion","Influencer","Technical Contact","Blocker"];
-const ROLE_COLORS     = {"Decision Maker":"#16a34a","Budget Holder":"#c8980a","Champion":"#3a7fd4","Influencer":"#7a5fc0","Technical Contact":"#0891b2","Blocker":"#dc2626","Unknown":"#aaa8b0"};
+const ROLE_COLORS     = {"Decision Maker":"#16a34a","Budget Holder":"#FEBC11","Champion":"#3a7fd4","Influencer":"#7a5fc0","Technical Contact":"#0891b2","Blocker":"#dc2626","Unknown":"#A89F8A"};
 const HOW_MET         = ["","Referral","Cold Outreach","Event / Conference","Existing Relationship","LinkedIn","Other"];
 
 const IMPORT_FIELDS = [
@@ -461,13 +461,13 @@ function autoMatch(h) {
 }
 
 const C = {
-  bg:"#f0eff0", surface:"#ffffff", border:"#e0dde0", border2:"#d0cdd0",
-  text:"#3a3840", textHi:"#1a1820", textLo:"#7a7880", textDim:"#aaa8b0",
-  gold:"#c8980a", blue:"#3a7fd4", purple:"#7a5fc0", green:"#16a34a", red:"#dc2626", amber:"#d97706",
-  serif:"'DM Serif Display',Georgia,serif", sans:"'DM Sans','Helvetica Neue',sans-serif",
+  bg:"#F2EFE6", surface:"#FFFFFF", border:"#E4DDCA", border2:"#D0C8B0",
+  text:"#3A3020", textHi:"#1A1A1A", textLo:"#6A6050", textDim:"#A89F8A",
+  gold:"#FEBC11", blue:"#2A6DB5", purple:"#7A5FC0", green:"#16a34a", red:"#dc2626", amber:"#B87800",
+  serif:"'Lato','Helvetica Neue',sans-serif", sans:"'Lato','Helvetica Neue',sans-serif",
 };
-const inp  = {width:"100%",background:"#f8f7f8",border:`1px solid ${C.border2}`,borderRadius:8,color:C.text,padding:"9px 12px",fontSize:14,fontFamily:C.sans,boxSizing:"border-box",outline:"none"};
-const inpD = {width:'100%',background:'#1e2530',border:'1px solid #374151',borderRadius:8,color:'#f1f0f4',padding:'9px 12px',fontSize:14,fontFamily:"'DM Sans','Helvetica Neue',sans-serif",boxSizing:'border-box',outline:'none'};
+const inp  = {width:"100%",background:"#FAF8F2",border:`1px solid ${C.border2}`,borderRadius:8,color:C.text,padding:"9px 12px",fontSize:14,fontFamily:C.sans,boxSizing:"border-box",outline:"none"};
+const inpD = {width:'100%',background:'#1e2530',border:'1px solid #374151',borderRadius:8,color:'#f1f0f4',padding:'9px 12px',fontSize:14,fontFamily:"'Lato','Helvetica Neue',sans-serif",boxSizing:'border-box',outline:'none'};
 const card = {background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:20,marginBottom:14,transition:"border-color 0.15s"};
 const btn  = (bg,col,bord) => ({background:bg||"transparent",color:col||C.text,border:`1px solid ${bord||C.border2}`,borderRadius:8,padding:"7px 14px",fontSize:13,fontWeight:bg?700:400,cursor:"pointer",display:"inline-flex",alignItems:"center",gap:6,fontFamily:C.sans});
 const lbl  = {fontSize:11,letterSpacing:"0.08em",textTransform:"uppercase",color:C.textDim};
@@ -642,7 +642,7 @@ function DupReviewStep({dupPairs, decisions, onDecide, onBack, onCommit, totalNe
         <button
           disabled={!allDone}
           onClick={onCommit}
-          style={{...btn(allDone?C.gold:"#e8e7e8","#1a1820"),flex:1,justifyContent:"center",opacity:allDone?1:0.5,cursor:allDone?"pointer":"not-allowed"}}
+          style={{...btn(allDone?C.gold:"#e8e7e8","#1A1A1A"),flex:1,justifyContent:"center",opacity:allDone?1:0.5,cursor:allDone?"pointer":"not-allowed"}}
         >
           {allDone
             ? "Confirm Import (" + totalNew + " new + " + mergeOrKeep + " from duplicates)"
@@ -813,9 +813,9 @@ function ContactImportModal({data, upd, closeModal}) {
     return (
       <div style={{textAlign:"center", padding:"40px 20px"}}>
         <div style={{fontSize:36, marginBottom:12}}>&#10003;</div>
-        <div style={{fontFamily:"Georgia,serif", fontSize:18, color:"#1a1820", marginBottom:8}}>Done!</div>
+        <div style={{fontFamily:"Georgia,serif", fontSize:18, color:"#1A1A1A", marginBottom:8}}>Done!</div>
         <div style={{fontSize:13, color:"#9ca3af", marginBottom:24}}>Contact info updated.</div>
-        <button onClick={closeModal} style={{padding:"8px 24px", background:"#c8980a", border:"none", borderRadius:8, color:"#0a0d13", fontWeight:700, cursor:"pointer", fontSize:14}}>Done</button>
+        <button onClick={closeModal} style={{padding:"8px 24px", background:"#FEBC11", border:"none", borderRadius:8, color:"#0a0d13", fontWeight:700, cursor:"pointer", fontSize:14}}>Done</button>
       </div>
     );
   }
@@ -831,7 +831,7 @@ function ContactImportModal({data, upd, closeModal}) {
           onMouseLeave={function(e){e.currentTarget.style.borderColor="#d1d5db";}}
           style={{border:"2px dashed #d1d5db", borderRadius:12, padding:"48px 24px", textAlign:"center", cursor:"pointer", background:"#fafafa"}}>
           <div style={{fontSize:36, marginBottom:12}}>&#128203;</div>
-          <div style={{fontWeight:700, fontSize:15, color:"#1a1820", marginBottom:6}}>Drop a screenshot here</div>
+          <div style={{fontWeight:700, fontSize:15, color:"#1A1A1A", marginBottom:6}}>Drop a screenshot here</div>
           <div style={{fontSize:13, color:"#9ca3af"}}>Drop a file, click to browse, or <strong>Ctrl+V</strong> to paste from clipboard</div>
           <input ref={fileRef} type="file" accept="image/*" style={{display:"none"}} onChange={function(e){handleFile(e.target.files[0]);}}/>
         </div>
@@ -843,7 +843,7 @@ function ContactImportModal({data, upd, closeModal}) {
             <button onClick={function(){setImgData(null);}} style={{padding:"8px 18px", background:"transparent", border:"1px solid #374151", borderRadius:8, cursor:"pointer", fontSize:13, color:"#9ca3af"}}>
               Use Different Image
             </button>
-            <button onClick={extract} disabled={loading} style={{flex:1, padding:"8px 18px", background:loading?"#e5e7eb":"#c8980a", border:"none", borderRadius:8, cursor:loading?"default":"pointer", fontWeight:700, fontSize:14, color:loading?"#9ca3af":"#0a0d13"}}>
+            <button onClick={extract} disabled={loading} style={{flex:1, padding:"8px 18px", background:loading?"#e5e7eb":"#FEBC11", border:"none", borderRadius:8, cursor:loading?"default":"pointer", fontWeight:700, fontSize:14, color:loading?"#9ca3af":"#0a0d13"}}>
               {loading ? "Reading image..." : "Extract Contacts"}
             </button>
           </div>
@@ -861,7 +861,7 @@ function ContactImportModal({data, upd, closeModal}) {
           )}
           {extracted.company && (
             <div style={{fontSize:13, color:"#9ca3af", marginBottom:14}}>
-              Found company: <strong style={{color:"#c8980a"}}>{extracted.company}</strong>
+              Found company: <strong style={{color:"#FEBC11"}}>{extracted.company}</strong>
             </div>
           )}
           <div style={{display:"flex", flexDirection:"column", gap:10, marginBottom:16}}>
@@ -871,7 +871,7 @@ function ContactImportModal({data, upd, closeModal}) {
                 <div key={i} style={{border:"1px solid #374151", borderRadius:10, padding:"12px 14px", background:"#1e2530"}}>
                   <div style={{display:"flex", alignItems:"flex-start", justifyContent:"space-between", marginBottom:8}}>
                     <div>
-                      <div style={{fontWeight:700, fontSize:14, color:"#1a1820"}}>{ec.name||"—"}</div>
+                      <div style={{fontWeight:700, fontSize:14, color:"#1A1A1A"}}>{ec.name||"—"}</div>
                       {ec.title && <div style={{fontSize:12, color:"#9ca3af"}}>{ec.title}</div>}
                       {ec.email && <div style={{fontSize:12, color:"#9ca3af"}}>{ec.email}</div>}
                       {ec.phone && <div style={{fontSize:12, color:"#9ca3af"}}>{ec.phone}</div>}
@@ -1318,9 +1318,9 @@ function OutlookSyncModal({ data, upd, closeModal, demoMode }) {
             {options.map(function(o){
               return (
                 <div key={o.value} onClick={function(){onChange(o.value);setOpenDropdown(null);}}
-                  style={{padding:"8px 12px",fontSize:12,color:o.value===value?"#c8980a":"#f1f0f4",background:o.value===value?"#c8980a22":"transparent",cursor:"pointer",borderBottom:"1px solid #2a2f3530"}}
+                  style={{padding:"8px 12px",fontSize:12,color:o.value===value?"#FEBC11":"#f1f0f4",background:o.value===value?"#FEBC1122":"transparent",cursor:"pointer",borderBottom:"1px solid #2a2f3530"}}
                   onMouseEnter={function(e){e.currentTarget.style.background="#374151";}}
-                  onMouseLeave={function(e){e.currentTarget.style.background=o.value===value?"#c8980a22":"transparent";}}
+                  onMouseLeave={function(e){e.currentTarget.style.background=o.value===value?"#FEBC1122":"transparent";}}
                 >
                   {o.label}
                 </div>
@@ -1404,7 +1404,7 @@ function OutlookSyncModal({ data, upd, closeModal, demoMode }) {
     });
     // Calendar events
     (d.events || []).forEach(function(e) {
-      rawAll.push({ ...e, _type: "calendar",         _label: "Calendar Event", _color: "#c8980a" });
+      rawAll.push({ ...e, _type: "calendar",         _label: "Calendar Event", _color: "#FEBC11" });
     });
     // Filter out already-processed items
     const fresh = rawAll.filter(function(item) { return !activeProcessedIds.has(item.id); });
@@ -1757,7 +1757,7 @@ function OutlookSyncModal({ data, upd, closeModal, demoMode }) {
         <div style={{ fontFamily: "Georgia,serif", fontSize: 18, color: "#f1f0f4", marginBottom: 8 }}>
           {toLog} activities logged from Outlook
         </div>
-        <button onClick={closeModal} style={{ padding: "8px 24px", background: "#c8980a", border: "none", borderRadius: 8, color: "#0a0d13", fontWeight: 700, cursor: "pointer", fontSize: 14 }}>
+        <button onClick={closeModal} style={{ padding: "8px 24px", background: "#FEBC11", border: "none", borderRadius: 8, color: "#0a0d13", fontWeight: 700, cursor: "pointer", fontSize: 14 }}>
           Done
         </button>
       </div>
@@ -1790,7 +1790,7 @@ function OutlookSyncModal({ data, upd, closeModal, demoMode }) {
   if (status === "loading") {
     return (
       <div style={{ textAlign: "center", padding: "60px 20px", color: "#6b7280", fontSize: 13 }}>
-        <div style={{ width: 24, height: 24, border: "2px solid #c8980a", borderTopColor: "transparent", borderRadius: "50%", animation: "spin 0.8s linear infinite", margin: "0 auto 16px" }} />
+        <div style={{ width: 24, height: 24, border: "2px solid #FEBC11", borderTopColor: "transparent", borderRadius: "50%", animation: "spin 0.8s linear infinite", margin: "0 auto 16px" }} />
         Pulling from Outlook...
       </div>
     );
@@ -1809,7 +1809,7 @@ function OutlookSyncModal({ data, upd, closeModal, demoMode }) {
           <div style={{ color: "#9ca3af", fontSize: 10, textTransform: "uppercase", letterSpacing: "0.07em" }}>Auto-Matched</div>
         </div>
         <div style={{ textAlign: "center" }}>
-          <div style={{ color: "#c8980a", fontWeight: 700, fontSize: 22 }}>{toLog}</div>
+          <div style={{ color: "#FEBC11", fontWeight: 700, fontSize: 22 }}>{toLog}</div>
           <div style={{ color: "#9ca3af", fontSize: 10, textTransform: "uppercase", letterSpacing: "0.07em" }}>Ready to Log</div>
         </div>
         <div style={{marginLeft:"auto",display:"flex",gap:8}}>
@@ -1920,7 +1920,7 @@ function OutlookSyncModal({ data, upd, closeModal, demoMode }) {
                 setSkippedMatches(matches);
               }
             }}
-              style={{ padding: "7px 16px", fontSize: 13, fontWeight: active ? 700 : 400, color: active ? "#c8980a" : "#9ca3af", background: "none", border: "none", borderBottom: "2px solid " + (active ? "#c8980a" : "transparent"), cursor: "pointer", fontFamily: "inherit" }}>
+              style={{ padding: "7px 16px", fontSize: 13, fontWeight: active ? 700 : 400, color: active ? "#FEBC11" : "#9ca3af", background: "none", border: "none", borderBottom: "2px solid " + (active ? "#FEBC11" : "transparent"), cursor: "pointer", fontFamily: "inherit" }}>
               {pair[1]}
             </button>
           );
@@ -1972,7 +1972,7 @@ function OutlookSyncModal({ data, upd, closeModal, demoMode }) {
                     {isLogging ? "✓ Log" : "+ Log"}
                   </button>
                   <button onClick={function() { setDecision(item.id, { action: dec.action === "skip" ? null : "skip" }); }}
-                    style={{ padding: "3px 10px", fontSize: 11, borderRadius: 6, cursor: "pointer", border: "1px solid " + (dec.action === "skip" ? "#aaa8b080" : "#2a2f35"), background: dec.action === "skip" ? "#aaa8b022" : "transparent", color: "#9ca3af" }}>
+                    style={{ padding: "3px 10px", fontSize: 11, borderRadius: 6, cursor: "pointer", border: "1px solid " + (dec.action === "skip" ? "#A89F8A80" : "#2a2f35"), background: dec.action === "skip" ? "#A89F8A22" : "transparent", color: "#9ca3af" }}>
                     Skip
                   </button>
                   <button onClick={function() { setDecision(item.id, { action: dec.action === "genLog" ? null : "genLog", genLogType: dec.genLogType || (item._type === "calendar" ? "Coffee" : "Email") }); }}
@@ -1994,7 +1994,7 @@ function OutlookSyncModal({ data, upd, closeModal, demoMode }) {
 
               {/* Match / assign row */}
               {dec.action === "log" && (
-                <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", paddingTop: 8, borderTop: "1px solid #f0eff0" }}>
+                <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", paddingTop: 8, borderTop: "1px solid #F2EFE6" }}>
                   {/* Auto-matched badge */}
                   {item._matchedCon && !dec._manualOverride && (
                     <span style={{ fontSize: 11, color: "#16a34a", background: "#14532d22", border: "1px solid #22c55e60", borderRadius: 6, padding: "2px 8px", background: "#14532d33" }}>
@@ -2206,7 +2206,7 @@ function OutlookSyncModal({ data, upd, closeModal, demoMode }) {
         <button
           onClick={save}
           disabled={!hasDecisions}
-          style={{ flex: 1, padding: "10px 18px", background: hasDecisions ? "#c8980a" : "#2a2f35", border: "none", borderRadius: 8, cursor: hasDecisions ? "pointer" : "not-allowed", fontWeight: 700, fontSize: 14, color: hasDecisions ? "#0a0d13" : "#6b7280" }}>
+          style={{ flex: 1, padding: "10px 18px", background: hasDecisions ? "#FEBC11" : "#2a2f35", border: "none", borderRadius: 8, cursor: hasDecisions ? "pointer" : "not-allowed", fontWeight: 700, fontSize: 14, color: hasDecisions ? "#0a0d13" : "#6b7280" }}>
           {toLog > 0 && toSkip > 0 ? "Save — Log " + toLog + " & Skip " + toSkip : toLog > 0 ? "Log " + toLog + " Activities" : toSkip > 0 ? "Save " + toSkip + " Skipped" : "Make a decision to save"}
         </button>
       </div>
@@ -2739,7 +2739,7 @@ function CampaignPanel({data, upd, setModal, setForm, setSA, setSC, setView, sho
       {(overdue>0||dueSoon>0) && (
         <div style={{display:"flex",gap:8,marginBottom:16,flexWrap:"wrap"}}>
           {overdue>0&&<div style={{background:"#ef444420",border:"1px solid #ef444440",borderRadius:8,padding:"6px 14px",fontSize:12,fontWeight:700,color:"#ef4444"}}>⚠ {overdue} Overdue</div>}
-          {dueSoon>0&&<div style={{background:"#c8980a20",border:"1px solid #c8980a40",borderRadius:8,padding:"6px 14px",fontSize:12,fontWeight:700,color:"#c8980a"}}>🔔 {dueSoon} Due Within 3 Days</div>}
+          {dueSoon>0&&<div style={{background:"#FEBC1120",border:"1px solid #FEBC1140",borderRadius:8,padding:"6px 14px",fontSize:12,fontWeight:700,color:"#FEBC11"}}>🔔 {dueSoon} Due Within 3 Days</div>}
         </div>
       )}
 
@@ -2762,7 +2762,7 @@ function CampaignPanel({data, upd, setModal, setForm, setSA, setSC, setView, sho
           var isDueSoon = item.diff!==null && item.diff>=0 && item.diff<=3;
           var isComingUp = item.diff!==null && item.diff>3 && item.diff<=7;
           return (
-            <div key={i} style={{background:"#13181a",border:"1px solid "+(isOverdueItem?"#ef444440":isDueSoon?"#c8980a40":isComingUp?"#7c3aed30":"#2a2f35"),borderRadius:10,padding:"14px 16px"}}>
+            <div key={i} style={{background:"#13181a",border:"1px solid "+(isOverdueItem?"#ef444440":isDueSoon?"#FEBC1140":isComingUp?"#7c3aed30":"#2a2f35"),borderRadius:10,padding:"14px 16px"}}>
               <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",marginBottom:10}}>
                 <div>
                   <div style={{fontWeight:700,fontSize:14,color:"#f1f0f4",marginBottom:2}}>{item.con.name} <span style={{fontWeight:400,color:"#6b7280",fontSize:13}}>@ {item.acc.name}</span></div>
@@ -2778,7 +2778,7 @@ function CampaignPanel({data, upd, setModal, setForm, setSA, setSC, setView, sho
                   var isDone = !!t.completedAt;
                   var isCurrent = ti===item.done;
                   return (
-                    <div key={ti} title={t.label+(isDone?" ✓ "+t.completedAt:t.dueDate?" due "+t.dueDate:"")} style={{width:30,height:30,borderRadius:"50%",background:isDone?"#22c55e22":"transparent",border:"2px solid "+(isDone?"#22c55e":isCurrent?"#c8980a":"#2a2f35"),display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:700,color:isDone?"#22c55e":isCurrent?"#c8980a":"#4b5563"}}>
+                    <div key={ti} title={t.label+(isDone?" ✓ "+t.completedAt:t.dueDate?" due "+t.dueDate:"")} style={{width:30,height:30,borderRadius:"50%",background:isDone?"#22c55e22":"transparent",border:"2px solid "+(isDone?"#22c55e":isCurrent?"#FEBC11":"#2a2f35"),display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:700,color:isDone?"#22c55e":isCurrent?"#FEBC11":"#4b5563"}}>
                       {isDone?"✓":ti+1}
                     </div>
                   );
@@ -2786,9 +2786,9 @@ function CampaignPanel({data, upd, setModal, setForm, setSA, setSC, setView, sho
               </div>
               {item.next && (
                 <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:8}}>
-                  <div style={{fontSize:13,color:isOverdueItem?"#ef4444":isDueSoon?"#c8980a":isComingUp?"#a78bfa":"#9ca3af"}}>
+                  <div style={{fontSize:13,color:isOverdueItem?"#ef4444":isDueSoon?"#FEBC11":isComingUp?"#a78bfa":"#9ca3af"}}>
                     {isOverdueItem?"⚠ Overdue — ":isDueSoon?"🔔 Due soon — ":isComingUp?"📅 Coming up — ":"Next: "}
-                    <strong style={{color:isOverdueItem?"#ef4444":isDueSoon?"#c8980a":isComingUp?"#a78bfa":"#d1d5db"}}>{item.next.label}</strong>
+                    <strong style={{color:isOverdueItem?"#ef4444":isDueSoon?"#FEBC11":isComingUp?"#a78bfa":"#d1d5db"}}>{item.next.label}</strong>
                     {item.next.dueDate&&" · "+(item.diff===0?"Today":item.diff===1?"Tomorrow":item.diff<0?Math.abs(item.diff)+" days overdue":item.diff+" days")}
                   </div>
                   <div style={{display:"flex",gap:6,alignItems:"center"}}>
@@ -2828,7 +2828,7 @@ function GenLogForm({data, onSave, onCancel, genLogTypes}) {
 
   const types = genLogTypes || ["LinkedIn","Cold Email","Networking Event","Trade Show","Cold Call","Referral Outreach","Other"];
 
-  const inpStyle = {width:"100%",background:"#f8f7f8",border:"1px solid #d0cdd0",borderRadius:8,color:"#3a3840",padding:"9px 12px",fontSize:14,fontFamily:"'DM Sans','Helvetica Neue',sans-serif",boxSizing:"border-box",outline:"none"};
+  const inpStyle = {width:"100%",background:"#f8f7f8",border:"1px solid #D0C8B0",borderRadius:8,color:"#3A3020",padding:"9px 12px",fontSize:14,fontFamily:"'Lato','Helvetica Neue',sans-serif",boxSizing:"border-box",outline:"none"};
 
   const handleSave = () => {
     if(!notes.trim()) return;
@@ -2837,24 +2837,24 @@ function GenLogForm({data, onSave, onCancel, genLogTypes}) {
   };
 
   return (
-    <div style={{background:"#f0eff0",border:"1px solid #e0dde0",borderRadius:10,padding:"14px 16px",marginBottom:14}}>
+    <div style={{background:"#F2EFE6",border:"1px solid #E4DDCA",borderRadius:10,padding:"14px 16px",marginBottom:14}}>
       <div style={{marginBottom:10}}>
-        <div style={{fontSize:11,color:"#7a7880",marginBottom:4}}>Type</div>
+        <div style={{fontSize:11,color:"#6A6050",marginBottom:4}}>Type</div>
         <select value={type} onChange={e=>{setType(e.target.value);setOtherType("");}} style={{...inpStyle}}>
           {types.map(t=>(<option key={t}>{t}</option>))}
         </select>
       </div>
       <div style={{display:type==="Other"?"block":"none",marginBottom:10}}>
-        <div style={{fontSize:11,color:"#7a7880",marginBottom:4}}>Describe</div>
+        <div style={{fontSize:11,color:"#6A6050",marginBottom:4}}>Describe</div>
         <textarea value={otherType} onChange={e=>setOtherType(e.target.value)} placeholder="e.g. Sent thank you card" style={{...inpStyle,minHeight:38,resize:"vertical"}}/>
       </div>
       <div style={{marginBottom:10}}>
-        <div style={{fontSize:11,color:"#7a7880",marginBottom:4}}>Notes</div>
+        <div style={{fontSize:11,color:"#6A6050",marginBottom:4}}>Notes</div>
         <textarea value={notes} onChange={e=>setNotes(e.target.value)} placeholder="e.g. LinkedIn requests to home builders in Scottsdale" style={{...inpStyle,minHeight:60,resize:"vertical"}}/>
       </div>
       <div style={{display:"grid",gridTemplateColumns:"1fr auto auto",gap:10,alignItems:"end",marginBottom:10}}>
         <div>
-          <div style={{fontSize:11,color:"#7a7880",marginBottom:4}}>Specific Contact (optional)</div>
+          <div style={{fontSize:11,color:"#6A6050",marginBottom:4}}>Specific Contact (optional)</div>
           <select value={contactId} onChange={e=>setContactId(e.target.value)} style={{...inpStyle}}>
             <option value="">-- General / No specific contact --</option>
             {data.accounts.flatMap(a=>a.contacts.map(con=>({con,acc:a}))).sort((a,b)=>a.con.name.localeCompare(b.con.name)).map(({con,acc})=>(
@@ -2863,17 +2863,17 @@ function GenLogForm({data, onSave, onCancel, genLogTypes}) {
           </select>
         </div>
         <div>
-          <div style={{fontSize:11,color:"#7a7880",marginBottom:4}}># Contacts</div>
+          <div style={{fontSize:11,color:"#6A6050",marginBottom:4}}># Contacts</div>
           <input type="number" min="1" value={count} onChange={e=>setCount(e.target.value)} style={{...inpStyle,width:70}}/>
         </div>
         <div>
-          <div style={{fontSize:11,color:"#7a7880",marginBottom:4}}>Date</div>
+          <div style={{fontSize:11,color:"#6A6050",marginBottom:4}}>Date</div>
           <input type="date" value={date} onChange={e=>setDate(e.target.value)} style={{...inpStyle,width:140}}/>
         </div>
       </div>
       <div style={{display:"flex",gap:8,alignItems:"center"}}>
-        <button onClick={handleSave} disabled={!notes.trim()} style={{padding:"8px 18px",background:notes.trim()?"#c8980a":"#e0dde0",border:"none",borderRadius:8,cursor:notes.trim()?"pointer":"default",fontWeight:700,fontSize:13,color:notes.trim()?"#0a0d13":"#aaa8b0"}}>Save Activity</button>
-        <button onClick={onCancel} style={{padding:"8px 14px",background:"transparent",border:"1px solid #d0cdd0",borderRadius:8,cursor:"pointer",fontSize:13,color:"#7a7880"}}>Cancel</button>
+        <button onClick={handleSave} disabled={!notes.trim()} style={{padding:"8px 18px",background:notes.trim()?"#FEBC11":"#E4DDCA",border:"none",borderRadius:8,cursor:notes.trim()?"pointer":"default",fontWeight:700,fontSize:13,color:notes.trim()?"#0a0d13":"#A89F8A"}}>Save Activity</button>
+        <button onClick={onCancel} style={{padding:"8px 14px",background:"transparent",border:"1px solid #D0C8B0",borderRadius:8,cursor:"pointer",fontSize:13,color:"#6A6050"}}>Cancel</button>
       </div>
     </div>
   );
@@ -3024,7 +3024,7 @@ function App({demoMode, onSignOut}) {
   const pipeSegs = [
     {key:"Won",                    val:wonBidVal,     color:C.green},
     {key:"Active Pursuit",         val:activeBidVal,  color:C.blue},
-    {key:"Proposal Pending",       val:pendingBidVal, color:"#c8980a"},
+    {key:"Proposal Pending",       val:pendingBidVal, color:"#FEBC11"},
     {key:"Budget / Budgetary Only",val:budgetBidVal,  color:C.textLo},
     {key:"Lost",                   val:lostBidVal,    color:C.red},
   ].filter(s=>s.val>0);
@@ -3278,8 +3278,8 @@ function App({demoMode, onSignOut}) {
     const w=window.open("","_blank");
     const esc=weeklyReport.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
     const html="<!DOCTYPE html><html><head><title>Fairco Weekly BD Report<" + "/title>"
-      +"<style>body{font-family:Georgia,serif;max-width:800px;margin:48px auto;color:#1a1820;font-size:15px;line-height:1.75;}"
-      +"h1{font-size:26px;border-bottom:3px solid #c8980a;padding-bottom:10px;}"
+      +"<style>body{font-family:Georgia,serif;max-width:800px;margin:48px auto;color:#1A1A1A;font-size:15px;line-height:1.75;}"
+      +"h1{font-size:26px;border-bottom:3px solid #FEBC11;padding-bottom:10px;}"
       +"h2{font-size:13px;color:#6b7280;font-weight:400;margin:0 0 32px;}"
       +"pre{white-space:pre-wrap;font-family:Georgia,serif;font-size:14px;line-height:1.85;}"
       +"@media print{body{margin:24px;}}<" + "/style><" + "/head><body>"
@@ -4241,7 +4241,7 @@ function App({demoMode, onSignOut}) {
         if(!next||!next.dueDate) return;
         const d = new Date(next.dueDate);
         if(d.getFullYear()===year && d.getMonth()===month){
-          addEvent(d.getDate(), {type:"campaign", label:camp.name+": "+next.label, sub:con.name+" @ "+acc.name, color:"#c8980a", accId:acc.id, conId:con.id});
+          addEvent(d.getDate(), {type:"campaign", label:camp.name+": "+next.label, sub:con.name+" @ "+acc.name, color:"#FEBC11", accId:acc.id, conId:con.id});
         }
       });
     });
@@ -4281,7 +4281,7 @@ function App({demoMode, onSignOut}) {
               if(["Lunch","Coffee","Happy Hour","Entertainment"].includes(t)) return "#f97316"; // orange - in person social
               if(["Site Visit"].includes(t)) return "#22c55e"; // green - on site
               if(["Phone Call"].includes(t)) return "#a78bfa"; // light purple - calls
-              if(["Proposal"].includes(t)) return "#c8980a"; // gold - proposals
+              if(["Proposal"].includes(t)) return "#FEBC11"; // gold - proposals
               if(["LinkedIn Connection Request","LinkedIn Message","LinkedIn Engagement"].includes(t)) return "#0077b5"; // linkedin blue
               if(["Email"].includes(t)) return "#4b5563"; // dark grey - emails, subtle
               return "#6b7280"; // default grey
@@ -4384,7 +4384,7 @@ function App({demoMode, onSignOut}) {
                 // Pre-fill the date in QuickLogModal via a small hack using form state
                 setTimeout(function(){ setForm(function(f){return {...f,_calDate:selectedDate};}); }, 50);
               }}
-              style={{width:"100%",background:"#c8980a",border:"none",borderRadius:10,padding:"12px",fontSize:14,fontWeight:700,color:"#0a0d13",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:8}}
+              style={{width:"100%",background:"#FEBC11",border:"none",borderRadius:10,padding:"12px",fontSize:14,fontWeight:700,color:"#0a0d13",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:8}}
             >
               <span style={{fontSize:18}}>＋</span>
               {isPast ? "Log Activity on This Day" : "Schedule Activity for This Day"}
@@ -4408,7 +4408,7 @@ function App({demoMode, onSignOut}) {
         <div style={{display:"flex",gap:6,marginBottom:12,flexWrap:"wrap"}}>
           {[["all","All"],["activity","Activities"],["job","Jobs Due"],["followup","Follow-ups"],["campaign","Campaigns"],["outreach","Outreach"]].map(function(pair){
             var active = calFilter===pair[0];
-            return <button key={pair[0]} onClick={function(){setCalFilter(pair[0]);}} style={{padding:"4px 12px",borderRadius:20,border:"1px solid "+(active?"#c8980a60":"#2a2f35"),background:active?"#c8980a22":"transparent",color:active?"#c8980a":"#6b7280",fontSize:12,cursor:"pointer",fontWeight:active?700:400}}>{pair[1]}</button>;
+            return <button key={pair[0]} onClick={function(){setCalFilter(pair[0]);}} style={{padding:"4px 12px",borderRadius:20,border:"1px solid "+(active?"#FEBC1160":"#2a2f35"),background:active?"#FEBC1122":"transparent",color:active?"#FEBC11":"#6b7280",fontSize:12,cursor:"pointer",fontWeight:active?700:400}}>{pair[1]}</button>;
           })}
         </div>
 
@@ -4428,10 +4428,10 @@ function App({demoMode, onSignOut}) {
                 if(filtered.length===0 && !isToday) return null;
                 var dateLabel = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"][new Date(year,month,d).getDay()]+" "+monthNames[month]+" "+d;
                 days.push(
-                  <div key={d} style={{background:isToday?"#1a1f24":C.surface,border:"1px solid "+(isToday?"#c8980a60":C.border),borderRadius:10,overflow:"hidden"}}>
+                  <div key={d} style={{background:isToday?"#1a1f24":C.surface,border:"1px solid "+(isToday?"#FEBC1160":C.border),borderRadius:10,overflow:"hidden"}}>
                     <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"8px 12px",borderBottom:filtered.length>0?"1px solid "+C.border:"none",cursor:"pointer"}}
                       onClick={function(){setSelectedDay(d);}}>
-                      <span style={{fontSize:13,fontWeight:isToday?700:600,color:isToday?"#c8980a":C.textHi}}>{dateLabel}</span>
+                      <span style={{fontSize:13,fontWeight:isToday?700:600,color:isToday?"#FEBC11":C.textHi}}>{dateLabel}</span>
                       <div style={{display:"flex",alignItems:"center",gap:8}}>
                         {filtered.length>0&&<span style={{fontSize:11,color:C.textDim}}>{filtered.length} event{filtered.length!==1?"s":""}</span>}
                         <span style={{fontSize:11,color:C.blue,cursor:"pointer"}} onClick={function(e){e.stopPropagation();setSelectedDay(d);setModal("fabLog");setTimeout(function(){setForm(function(f){return {...f,_calDate:year+"-"+String(month+1).padStart(2,"0")+"-"+String(d).padStart(2,"0")};});},50);}}>+ Log</span>
@@ -5005,7 +5005,7 @@ function App({demoMode, onSignOut}) {
                 {label:"Total Bid",  val:fmt$(Math.round(totalBidVal)), color:C.textHi, border:C.border,    always:true, statusKey:null},
                 {label:"Won",        val:fmt$(Math.round(wonBidVal)),   color:C.green,  border:C.green,     val2:allJobs.filter(j=>j.status==="Won").length+" jobs", statusKey:"Won"},
                 {label:"Active",     val:fmt$(Math.round(activeBidVal)),color:C.blue,   border:C.blue,      val2:allJobs.filter(j=>j.status==="Active Pursuit").length+" jobs", statusKey:"Active Pursuit"},
-                {label:"Pending",    val:fmt$(Math.round(pendingBidVal)),color:"#c8980a",border:"#c8980a",  val2:allJobs.filter(j=>j.status==="Proposal Pending").length+" jobs", statusKey:"Proposal Pending"},
+                {label:"Pending",    val:fmt$(Math.round(pendingBidVal)),color:"#FEBC11",border:"#FEBC11",  val2:allJobs.filter(j=>j.status==="Proposal Pending").length+" jobs", statusKey:"Proposal Pending"},
                 {label:"Budgetary",  val:fmt$(Math.round(budgetBidVal)),color:C.textLo, border:C.border,    val2:allJobs.filter(j=>j.status==="Budget / Budgetary Only").length+" jobs", statusKey:"Budget / Budgetary Only"},
                 {label:"Lost",       val:fmt$(Math.round(lostBidVal)),  color:C.red,    border:C.red,       val2:allJobs.filter(j=>j.status==="Lost").length+" jobs", statusKey:"Lost"},
               ].filter(t=>t.always||(parseCur(t.val)>0)).map(t=>{
@@ -5585,10 +5585,16 @@ function App({demoMode, onSignOut}) {
 
   return (
     <div style={{background:C.bg,minHeight:"100vh",color:C.text,fontFamily:C.sans,fontSize:14}}>
+      {/* RACE STRIP */}
+      <div style={{display:"flex",height:5,position:"sticky",top:0,zIndex:101}}>
+        <div style={{flex:2,background:"#FEBC11"}}/>
+        <div style={{flex:1,background:"#1A1A1A"}}/>
+      </div>
       {/* NAV BAR */}
-      <div style={{background:C.surface,borderBottom:`1px solid ${C.border}`,padding:isMobile?"0 16px":"0 32px",display:"flex",alignItems:"center",justifyContent:"space-between",height:58,position:"sticky",top:0,zIndex:100}}>
-        <div style={{fontFamily:C.serif,fontSize:22,color:C.textHi,letterSpacing:"-0.02em",cursor:"pointer"}} onClick={()=>{setView("dash");setBackStack([]);setMobileMenuOpen(false);}}>
-          Sales<span style={{color:C.gold}}>OS</span>
+      <div style={{background:C.surface,borderBottom:`1px solid ${C.border}`,padding:isMobile?"0 16px":"0 32px",display:"flex",alignItems:"center",justifyContent:"space-between",height:54,position:"sticky",top:5,zIndex:100}}>
+        <div style={{display:"flex",alignItems:"baseline",gap:7,cursor:"pointer"}} onClick={()=>{setView("dash");setBackStack([]);setMobileMenuOpen(false);}}>
+          <span style={{fontFamily:"'Lato','Helvetica Neue',sans-serif",fontSize:19,fontWeight:900,color:C.textHi,letterSpacing:"0.05em"}}>FAIRCO</span>
+          <span style={{fontFamily:"'Lato','Helvetica Neue',sans-serif",fontSize:10,fontWeight:700,color:C.gold,letterSpacing:"0.14em",textTransform:"uppercase",paddingBottom:1}}>SalesOS</span>
         </div>
         {isMobile ? (
           <div style={{display:"flex",alignItems:"center",gap:8}}>
@@ -5741,41 +5747,47 @@ function LoginScreen({ onLogin, onDemo }) {
   };
 
   return (
-    <div style={{minHeight:"100vh",background:"#f0eff0",display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'DM Sans','Helvetica Neue',sans-serif"}}>
-      <div style={{background:"#ffffff",border:"1px solid #e0dde0",borderRadius:16,padding:"40px 48px",width:"100%",maxWidth:400,textAlign:"center",boxShadow:"0 4px 24px rgba(0,0,0,0.06)"}}>
-        <div style={{fontFamily:"'DM Serif Display',Georgia,serif",fontSize:28,color:"#1a1820",marginBottom:4}}>
-          Sales<span style={{color:"#c8980a"}}>OS</span>
+    <div style={{minHeight:"100vh",background:"#F2EFE6",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",fontFamily:"'Lato','Helvetica Neue',sans-serif"}}>
+      {/* Race strip at top of login */}
+      <div style={{position:"fixed",top:0,left:0,right:0,display:"flex",height:5,zIndex:10}}>
+        <div style={{flex:2,background:"#FEBC11"}}/>
+        <div style={{flex:1,background:"#1A1A1A"}}/>
+      </div>
+      <div style={{background:"#FFFFFF",border:"1px solid #E4DDCA",borderRadius:16,padding:"40px 48px",width:"100%",maxWidth:400,textAlign:"center",boxShadow:"0 4px 24px rgba(0,0,0,0.06)"}}>
+        <div style={{marginBottom:24}}>
+          <div style={{fontFamily:"'Lato','Helvetica Neue',sans-serif",fontSize:26,fontWeight:900,color:"#1A1A1A",letterSpacing:"0.06em",lineHeight:1}}>FAIRCO</div>
+          <div style={{fontFamily:"'Lato','Helvetica Neue',sans-serif",fontSize:10,fontWeight:700,color:"#FEBC11",letterSpacing:"0.2em",textTransform:"uppercase",marginTop:4}}>SalesOS</div>
         </div>
-        <div style={{color:"#7a7880",fontSize:13,marginBottom:32}}>BD Pipeline & Relationship Manager</div>
+        <div style={{color:"#A89F8A",fontSize:13,marginBottom:28}}>BD Pipeline & Relationship Manager</div>
         <input
           type="password"
           placeholder="Password"
           value={pw}
           onChange={e=>{setPw(e.target.value);setErr(false);}}
           onKeyDown={e=>e.key==="Enter"&&attempt()}
-          style={{width:"100%",background:"#f8f7f8",border:`1px solid ${err?"#dc2626":"#d0cdd0"}`,borderRadius:8,color:"#3a3840",padding:"10px 14px",fontSize:14,fontFamily:"'DM Sans',sans-serif",boxSizing:"border-box",outline:"none",marginBottom:8}}
+          style={{width:"100%",background:"#FAF8F2",border:`1px solid ${err?"#dc2626":"#D0C8B0"}`,borderRadius:8,color:"#3A3020",padding:"10px 14px",fontSize:14,fontFamily:"'Lato',sans-serif",boxSizing:"border-box",outline:"none",marginBottom:8}}
           autoFocus
         />
         {err && <div style={{color:"#dc2626",fontSize:12,marginBottom:8,textAlign:"left"}}>Incorrect password</div>}
         <button
           onClick={attempt}
           disabled={checking}
-          style={{width:"100%",background:"#c8980a",color:"#0a0d13",border:"none",borderRadius:8,padding:"10px 0",fontSize:14,fontWeight:700,cursor:checking?"wait":"pointer",fontFamily:"'DM Sans',sans-serif",marginBottom:12}}
+          style={{width:"100%",background:"#FEBC11",color:"#1A1A1A",border:"none",borderRadius:8,padding:"10px 0",fontSize:14,fontWeight:700,cursor:checking?"wait":"pointer",fontFamily:"'Lato',sans-serif",marginBottom:12}}
         >
           {checking ? "Checking..." : "Sign In"}
         </button>
         <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12}}>
-          <div style={{flex:1,height:1,background:"#e0dde0"}}/>
-          <span style={{fontSize:12,color:"#aaa8b0"}}>or</span>
-          <div style={{flex:1,height:1,background:"#e0dde0"}}/>
+          <div style={{flex:1,height:1,background:"#E4DDCA"}}/>
+          <span style={{fontSize:12,color:"#A89F8A"}}>or</span>
+          <div style={{flex:1,height:1,background:"#E4DDCA"}}/>
         </div>
         <button
           onClick={onDemo}
-          style={{width:"100%",background:"transparent",color:"#7a5fc0",border:"1px solid #7a5fc040",borderRadius:8,padding:"10px 0",fontSize:14,fontWeight:600,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}
+          style={{width:"100%",background:"transparent",color:"#7A5FC0",border:"1px solid #7A5FC040",borderRadius:8,padding:"10px 0",fontSize:14,fontWeight:600,cursor:"pointer",fontFamily:"'Lato',sans-serif"}}
         >
           ✦ Try Demo
         </button>
-        <div style={{fontSize:11,color:"#aaa8b0",marginTop:10}}>Demo mode — explore freely, no data is saved</div>
+        <div style={{fontSize:11,color:"#A89F8A",marginTop:10}}>Demo mode — explore freely, no data is saved</div>
       </div>
     </div>
   );
