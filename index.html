@@ -52,6 +52,7 @@ window.addEventListener('unhandledrejection', function(e) {
 });
 </script>
 <script type="text/babel">
+try {
 const {useState,useEffect,useRef} = React;
 const useIsMobile = () => {
   const [mob, setMob] = useState(window.innerWidth <= 768);
@@ -68,13 +69,7 @@ const SUPABASE_URL = "https://mxtmlgifukdlomuothzi.supabase.co";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im14dG1sZ2lmdWtkbG9tdW90aHppIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMxMDgyNTEsImV4cCI6MjA4ODY4NDI1MX0.LWdPyXX24iaeNtKPrqCfg6r-BDdAwUImmp08zpfLRCc";
 const SB_TABLE = "app_data";
 const SB_ROW_ID = "salesos_main";
-let sb;
-try {
-  sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-} catch(e) {
-  window.__showErr && window.__showErr('Supabase failed to initialize:\n' + e.message + '\n\nThe Supabase CDN script may not have loaded. Check your network connection.');
-  throw e;
-}
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const DEFAULT_MARKETS = ["General Contractor","Construction Manager","Owner / Developer","Home Builder","Subcontractor","Design-Build","Healthcare","Industrial","Government / Public","Mixed-Use / Multifamily"];
 const JOB_STATUSES   = ["Active Pursuit","Proposal Pending","Won","Lost","Budget / Budgetary Only"];
 const STATUS_COLORS  = {"Active Pursuit":"#7EB8F7","Proposal Pending":"#E8C547","Won":"#22c55e","Lost":"#ef4444","No Bid":"#f97316","Budget / Budgetary Only":"#6b7280"};
@@ -5800,11 +5795,10 @@ function Root() {
   return <App demoMode={demoMode} onSignOut={()=>{localStorage.removeItem("salesos_authed");setAuthed(false);setDemoMode(false);}} />;
 }
 
-try {
   ReactDOM.createRoot(document.getElementById("root")).render(<Root/>);
-} catch(e) {
-  window.__showErr && window.__showErr('ReactDOM.createRoot failed:\n' + (e.stack || e.message));
-  throw e;
+} catch(__e) {
+  var __msg = __e && __e.stack ? __e.stack : String(__e);
+  window.__showErr ? window.__showErr('JS error inside app:\n\n' + __msg) : alert(__msg);
 }
 </script>
 </body>
