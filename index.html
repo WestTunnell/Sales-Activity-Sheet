@@ -51,7 +51,7 @@ window.addEventListener('unhandledrejection', function(e) {
   window.__showErr('Unhandled promise rejection:\n' + (e.reason && e.reason.stack ? e.reason.stack : String(e.reason)));
 });
 </script>
-<script type="text/babel">
+<script id="app-src" type="text/plain">
 try {
 const {useState,useEffect,useRef} = React;
 const useIsMobile = () => {
@@ -5800,6 +5800,27 @@ function Root() {
   var __msg = __e && __e.stack ? __e.stack : String(__e);
   window.__showErr ? window.__showErr('JS error inside app:\n\n' + __msg) : alert(__msg);
 }
+</script>
+<script>
+(function() {
+  try {
+    var src = document.getElementById('app-src').textContent;
+    var compiled;
+    try {
+      compiled = Babel.transform(src, { presets: ['react'], filename: 'app.jsx' }).code;
+    } catch(babelErr) {
+      window.__showErr('Babel compile error:\n\n' + (babelErr.message || String(babelErr)));
+      return;
+    }
+    try {
+      (new Function(compiled))();
+    } catch(runErr) {
+      window.__showErr('Runtime error:\n\n' + (runErr.stack || runErr.message || String(runErr)));
+    }
+  } catch(outerErr) {
+    window.__showErr('Loader error:\n\n' + (outerErr.message || String(outerErr)));
+  }
+})();
 </script>
 </body>
 </html>
